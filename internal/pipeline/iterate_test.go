@@ -153,6 +153,27 @@ func TestIdentifierFromBranch_SweepRoundTrip(t *testing.T) {
 	}
 }
 
+func TestShouldPostFallbackComment(t *testing.T) {
+	cases := []struct {
+		name        string
+		ch          watch.PRChanges
+		threadCount int
+		want        bool
+	}{
+		{"CI-only, no events → no comment", watch.PRChanges{CIFailure: &watch.CIFailure{SHA: "abc"}}, 0, false},
+		{"review feedback, no thread replies → comment", watch.PRChanges{Events: []watch.Event{{Type: watch.EventComment, Path: "a.go"}}}, 0, true},
+		{"thread replies posted → no fallback", watch.PRChanges{Events: []watch.Event{{Type: watch.EventComment, Path: "a.go"}}}, 2, false},
+		{"nothing at all → no comment", watch.PRChanges{}, 0, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shouldPostFallbackComment(c.ch, c.threadCount); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestDisplayName(t *testing.T) {
 	tests := []struct {
 		id   string
