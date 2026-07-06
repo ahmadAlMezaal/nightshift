@@ -651,7 +651,7 @@ func (p *Pipeline) postIterationReplies(ctx context.Context, ch watch.PRChanges,
 		p.replyToConversation(ctx, ch, convReply, logger)
 		return
 	}
-	if len(threadReplies) == 0 {
+	if shouldPostFallbackComment(ch, len(threadReplies)) {
 		if err := p.gh.PostComment(ctx, ch.PR.URL, convReply); err != nil {
 			logger.Warn("post iteration reply failed", "err", err)
 		}
@@ -670,6 +670,12 @@ func (p *Pipeline) replyToConversation(ctx context.Context, ch watch.PRChanges, 
 	if err := p.gh.PostComment(ctx, ch.PR.URL, body); err != nil {
 		logger.Warn("post conversation reply failed", "err", err)
 	}
+}
+
+// shouldPostFallbackComment gates the single standalone comment when no per-thread reply was posted.
+// Requires len(ch.Events) > 0 so a CI-only re-engagement — which has no one to answer — stays silent.
+func shouldPostFallbackComment(ch watch.PRChanges, threadReplyCount int) bool {
+	return threadReplyCount == 0 && len(ch.Events) > 0
 }
 
 func hasConversationComment(ch watch.PRChanges) bool {
