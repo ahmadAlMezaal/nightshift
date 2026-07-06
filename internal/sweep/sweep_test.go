@@ -152,3 +152,31 @@ func TestSweepIdentifier(t *testing.T) {
 		}
 	}
 }
+
+func TestParseSweepIdentifier(t *testing.T) {
+	tests := []struct {
+		id       string
+		repoSlug string
+		suffix   string
+		ok       bool
+	}{
+		{"SWEEP-MY-REPO-LINT-CLEANUP", "my-repo", "lint-cleanup", true},
+		{"SWEEP-AHMADALMEZAAL-TRADE-MATE-DEAD-CODE", "ahmadalmezaal-trade-mate", "dead-code", true},
+		{"ENG-42", "", "", false},
+		{"SWEEP-MY-REPO-UNKNOWN", "", "", false},
+	}
+	for _, tt := range tests {
+		repoSlug, suffix, ok := ParseSweepIdentifier(tt.id)
+		if repoSlug != tt.repoSlug || suffix != tt.suffix || ok != tt.ok {
+			t.Errorf("ParseSweepIdentifier(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				tt.id, repoSlug, suffix, ok, tt.repoSlug, tt.suffix, tt.ok)
+		}
+	}
+}
+
+func TestParseSweepIdentifier_RoundTrip(t *testing.T) {
+	repoSlug, suffix, ok := ParseSweepIdentifier(SweepIdentifier("my-repo", "lint-cleanup"))
+	if !ok || repoSlug != "my-repo" || suffix != "lint-cleanup" {
+		t.Errorf("round trip = (%q, %q, %v)", repoSlug, suffix, ok)
+	}
+}
