@@ -18,6 +18,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/state"
+	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
@@ -198,7 +199,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
 
-	p.notifier.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(identifier), engagementSummary(ch), ch.PR.Number))
+	p.notifier.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(displayName(identifier)), engagementSummary(ch), ch.PR.Number))
 
 	// Every failure path below records the iteration before returning, else the cursor never advances and the same feedback loops forever (infra failures — timeout/rate-limit — intentionally retry).
 	// Prefer the watcher-discovered clone's remote URL (ch.PR.RepoURL) — it preserves SSH transport; the bare owner/name fallback synthesizes HTTPS, which fails on SSH-only hosts.
@@ -492,7 +493,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.postIterationReplies(ctx, ch, output, sha, convReply, logger)
 
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — pushed follow-up to PR #%d (%s)",
-			notify.EscapeMarkdown(identifier), ch.PR.Number, engagementSummary(ch)))
+			notify.EscapeMarkdown(displayName(identifier)), ch.PR.Number, engagementSummary(ch)))
 	} else {
 		logger.Info("no diff produced")
 		convReply := "Noctra reviewed this but made no change — it appears already addressed or no longer applicable. Re-open if you'd like it revisited."
@@ -508,7 +509,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			}
 		}
 		p.notifier.Send(ctx, fmt.Sprintf("✅ *%s* — reviewed PR #%d, no code changes needed",
-			notify.EscapeMarkdown(identifier), ch.PR.Number))
+			notify.EscapeMarkdown(displayName(identifier)), ch.PR.Number))
 	}
 
 	iterateStatus := "no_change"
@@ -527,10 +528,12 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 // recordIteration bumps the iteration counter, advances the comment/review cursors, and fires cap-hit notifications on the transition.
 func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, identifier string, prNumber int, issueID string) {
 	var (
-		iterations  int
-		lastComment time.Time
-		lastReview  time.Time
-		lastCISHA   string
+		iterations    int
+		lastComment   time.Time
+		lastReview    time.Time
+		lastCISHA     string
+		lastReasoning string
+		lastCIRunURL  string
 	)
 	if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 		if r.TicketID == "" {
@@ -554,6 +557,8 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 		lastComment = r.LastCommentAt
 		lastReview = r.LastReviewAt
 		lastCISHA = r.LastCISHA
+		lastReasoning = r.LastReasoning
+		lastCIRunURL = r.LastCIRunURL
 	}); err != nil {
 		slog.Warn("pipeline: state update failed", "url", ch.PR.URL, "err", err)
 		return
@@ -567,13 +572,21 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 	)
 
 	if iterations >= p.cfg.MaxPRIterations {
-		p.notifier.Send(ctx, fmt.Sprintf(
-			"🛑 *%s* — PR #%d hit iteration cap (%d attempts). Needs human attention.",
-			notify.EscapeMarkdown(identifier), prNumber, iterations))
+		reason := capReason(lastReasoning, lastCIRunURL)
+		msg := fmt.Sprintf("🛑 *%s* — PR #%d hit iteration cap (%d attempts). Needs human attention.",
+			notify.EscapeMarkdown(displayName(identifier)), prNumber, iterations)
+		if reason != "" {
+			msg += "\n" + notify.EscapeMarkdown(reason)
+		}
+		p.notifier.Send(ctx, msg)
 		if issueID != "" {
-			_ = p.linear.Comment(ctx, issueID, fmt.Sprintf(
+			comment := fmt.Sprintf(
 				"🛑 **Noctra: PR iteration cap reached** (%d attempts on PR %s).\n\nNeeds a human to take a look — Noctra won't re-engage on this PR again unless you reset the iteration count in the state DB or close the PR.",
-				iterations, ch.PR.URL))
+				iterations, ch.PR.URL)
+			if reason != "" {
+				comment += "\n\n**Last attempt:** " + reason
+			}
+			_ = p.linear.Comment(ctx, issueID, comment)
 		}
 	}
 }
@@ -717,4 +730,30 @@ func identifierFromBranch(branch string) string {
 		return ""
 	}
 	return strings.ToUpper(strings.TrimPrefix(branch, "noctra/"))
+}
+
+// displayName is the human-facing notification label: ticket IDs pass through, but the shouty sweep
+// identifier is rendered like the sweep loop's own notices — "Sweep: lint-cleanup on my-repo".
+func displayName(identifier string) string {
+	if repoSlug, task, ok := sweep.ParseSweepIdentifier(identifier); ok {
+		return fmt.Sprintf("Sweep: %s on %s", task, repoSlug)
+	}
+	return identifier
+}
+
+// capReason summarizes why a PR exhausted its iterations: the last attempt's reasoning (first line)
+// plus a link to the failing CI run when recorded.
+func capReason(reasoning, ciRunURL string) string {
+	summary := strings.TrimSpace(strings.SplitN(strings.TrimSpace(reasoning), "\n", 2)[0])
+	if r := []rune(summary); len(r) > 300 {
+		summary = string(r[:300]) + "…"
+	}
+	var parts []string
+	if summary != "" {
+		parts = append(parts, summary)
+	}
+	if ciRunURL != "" {
+		parts = append(parts, "Failing CI: "+ciRunURL)
+	}
+	return strings.Join(parts, "\n")
 }

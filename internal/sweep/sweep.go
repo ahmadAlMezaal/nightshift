@@ -69,3 +69,23 @@ func SweepIdentifier(repoSlug, taskSuffix string) string {
 func sanitizeRepoSlug(repoSlug string) string {
 	return strings.ReplaceAll(repoSlug, "/", "-")
 }
+
+// ParseSweepIdentifier reverses SweepIdentifier ("SWEEP-MYREPO-LINT-CLEANUP" → "myrepo", "lint-cleanup");
+// ok is false for non-sweep identifiers. Both halves contain dashes, so the split is anchored on the known
+// task suffixes — longest match wins so a repo slug ending in a task word can't mis-split.
+func ParseSweepIdentifier(identifier string) (repoSlug, taskSuffix string, ok bool) {
+	rest, found := strings.CutPrefix(strings.ToLower(identifier), "sweep-")
+	if !found {
+		return "", "", false
+	}
+	best := ""
+	for _, t := range catalog {
+		if s := t.BranchSuffix; strings.HasSuffix(rest, "-"+s) && len(s) > len(best) {
+			best = s
+		}
+	}
+	if best == "" {
+		return "", "", false
+	}
+	return strings.TrimSuffix(rest, "-"+best), best, true
+}

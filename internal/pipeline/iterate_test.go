@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/ahmadAlMezaal/noctra/internal/github"
@@ -149,5 +150,37 @@ func TestIdentifierFromBranch_SweepRoundTrip(t *testing.T) {
 	want := sweep.SweepIdentifier(repoSlug, taskSuffix)
 	if got != want {
 		t.Errorf("sweep branch identifier = %q, want %q", got, want)
+	}
+}
+
+func TestDisplayName(t *testing.T) {
+	tests := []struct {
+		id   string
+		want string
+	}{
+		{"ENG-42", "ENG-42"},
+		{"SWEEP-AHMADALMEZAAL-TRADE-MATE-LINT-CLEANUP", "Sweep: lint-cleanup on ahmadalmezaal-trade-mate"},
+		{"SWEEP-MYREPO-DEAD-CODE", "Sweep: dead-code on myrepo"},
+		{"SWEEP-UNKNOWN-TASK", "SWEEP-UNKNOWN-TASK"},
+	}
+	for _, tt := range tests {
+		if got := displayName(tt.id); got != tt.want {
+			t.Errorf("displayName(%q) = %q, want %q", tt.id, got, tt.want)
+		}
+	}
+}
+
+func TestCapReason(t *testing.T) {
+	if got := capReason("", ""); got != "" {
+		t.Errorf("empty inputs = %q, want empty", got)
+	}
+	got := capReason("Fixed the import.\nMore detail.", "https://ci/run/1")
+	want := "Fixed the import.\nFailing CI: https://ci/run/1"
+	if got != want {
+		t.Errorf("capReason = %q, want %q", got, want)
+	}
+	long := capReason(strings.Repeat("x", 400), "")
+	if r := []rune(long); len(r) != 301 || string(r[300]) != "…" {
+		t.Errorf("capReason did not truncate long reasoning: len=%d", len([]rune(long)))
 	}
 }
