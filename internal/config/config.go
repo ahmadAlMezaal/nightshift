@@ -92,6 +92,10 @@ const (
 	// Sweep — autonomous maintenance (ENG-222) — disabled by default.
 	DefaultSweepInterval = 24 * time.Hour
 	DefaultSweepMaxTasks = 5
+	// DefaultSweepTimeout bounds a single sweep run below the full ticket timeout — maintenance work is best-effort, so it shouldn't run to the 45m wall.
+	DefaultSweepTimeout = 20 * time.Minute
+	// DefaultSweepMaxTokens is the built-in per-run token ceiling applied to sweeps when AGENT_MAX_TOKENS isn't set, so a runaway sweep can't silently burn tens of millions of tokens (see the dead-code incident: 18.4M tokens / $33 in one run).
+	DefaultSweepMaxTokens = 8_000_000
 
 	// Jira defaults.
 	DefaultJiraInReviewStatus = "In Review"
@@ -181,6 +185,7 @@ type Config struct {
 	// Budget / cost-aware management (ENG-217).
 	MaxDailyTokens    int64         // daily token cap, 0 = unlimited
 	MaxDailyUSD       float64       // daily dollar cap, 0 = unlimited
+	AgentMaxTokens    int64         // per-run token ceiling that aborts a single agent run mid-flight, 0 = unlimited (Claude backend only)
 	RateLimitStrategy string        // "pause" (default) or "shutdown"
 	RateLimitCooldown time.Duration // pause duration after rate limit (default 30m)
 
@@ -189,6 +194,7 @@ type Config struct {
 	SweepSchedule string        // cron expression (e.g. "0 2 * * *"); empty = use SweepInterval
 	SweepInterval time.Duration // fallback fixed interval when no cron (default 24h)
 	SweepMaxTasks int           // max tasks per sweep run (default 5)
+	SweepTimeout  time.Duration // per-sweep-run timeout (default 20m; shorter than the ticket AgentTimeout)
 	SweepTasks    []string      // enabled task names (nil = all registered tasks)
 	SweepRepos    []string      // explicit repos to sweep (owner/name or URL); nil = all cloned
 
@@ -307,6 +313,7 @@ func Load(scriptDir string) (*Config, error) {
 	// Budget / cost-aware management (ENG-217)
 	cfg.MaxDailyTokens = int64(getint(fileEnv, "MAX_DAILY_TOKENS", 0))
 	cfg.MaxDailyUSD = getfloat(fileEnv, "MAX_DAILY_USD", 0)
+	cfg.AgentMaxTokens = int64(getint(fileEnv, "AGENT_MAX_TOKENS", 0))
 	cfg.RateLimitStrategy = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "RATE_LIMIT_STRATEGY", DefaultRateLimitStrategy)))
 	cooldownSecs := getint(fileEnv, "RATE_LIMIT_COOLDOWN", int(DefaultRateLimitCooldown/time.Second))
 	cfg.RateLimitCooldown = time.Duration(cooldownSecs) * time.Second
@@ -317,6 +324,8 @@ func Load(scriptDir string) (*Config, error) {
 	sweepIntervalSecs := getint(fileEnv, "SWEEP_INTERVAL", int(DefaultSweepInterval/time.Second))
 	cfg.SweepInterval = time.Duration(sweepIntervalSecs) * time.Second
 	cfg.SweepMaxTasks = getint(fileEnv, "SWEEP_MAX_TASKS", DefaultSweepMaxTasks)
+	sweepTimeoutMin := getint(fileEnv, "SWEEP_TIMEOUT_MINUTES", int(DefaultSweepTimeout/time.Minute))
+	cfg.SweepTimeout = time.Duration(sweepTimeoutMin) * time.Minute
 	cfg.SweepTasks = getlist(fileEnv, "SWEEP_TASKS")
 	cfg.SweepRepos = getlist(fileEnv, "SWEEP_REPOS")
 

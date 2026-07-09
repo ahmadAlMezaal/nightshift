@@ -15,6 +15,9 @@ import (
 // ErrTimedOut is returned when the agent is killed on per-attempt timeout.
 var ErrTimedOut = errors.New("agent timed out")
 
+// ErrTokenCapExceeded is returned when a run is aborted mid-flight for crossing RunOptions.MaxTokens.
+var ErrTokenCapExceeded = errors.New("per-run token ceiling exceeded")
+
 // RunOptions configures one invocation of a coding-agent CLI.
 type RunOptions struct {
 	Workdir string
@@ -23,6 +26,8 @@ type RunOptions struct {
 	Timeout time.Duration
 	// UseAgentTeams is Claude-specific (CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS); other backends ignore it.
 	UseAgentTeams bool
+	// MaxTokens aborts the run once cumulative token usage crosses this ceiling (0 = unlimited). Claude-specific — enforced by streaming usage; other backends ignore it and rely on Timeout.
+	MaxTokens int64
 }
 
 // Backend abstracts the coding-agent CLI Noctra shells out to (Claude/Codex/Copilot/Antigravity, by AGENT_BACKEND). The rest of the package is backend-agnostic; only CLI invocation and usage/rate-limit phrasing (HasRateLimit) differ per backend.

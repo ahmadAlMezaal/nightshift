@@ -330,6 +330,7 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		LogFile:       logFile,
 		Timeout:       p.cfg.AgentTimeout,
 		UseAgentTeams: p.cfg.UseAgentTeams,
+		MaxTokens:     p.cfg.AgentMaxTokens,
 	})
 
 	// Killed via /kill — skip error handling and let the defer clean up.
@@ -347,6 +348,14 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	// Infra failures (timeout/rate-limit) don't increment the iteration count — they weren't real attempts.
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("iteration timed out — will retry next poll", "timeout", p.cfg.AgentTimeout)
+		return
+	}
+
+	if errors.Is(runErr, agent.ErrTokenCapExceeded) {
+		p.budget.Record(usage.TotalTokens, usage.CostUSD)
+		p.recordUsage(usage, "iterate", identifier, ch.PR.URL, backend)
+		logger.Warn("iteration aborted: per-run token ceiling reached",
+			"max_tokens", p.cfg.AgentMaxTokens, "tokens", usage.TotalTokens)
 		return
 	}
 

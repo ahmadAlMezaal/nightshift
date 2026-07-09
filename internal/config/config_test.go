@@ -23,8 +23,8 @@ var noctraEnvKeys = []string{
 	"REPOS_BASE", "WORKTREE_BASE", "LOG_DIR",
 	"AUTO_ITERATE_PRS", "MAX_PR_ITERATIONS", "PR_POLL_INTERVAL",
 	"TRUSTED_REVIEWERS", "STATE_DB", "STATE_FILE",
-	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
-	"SWEEP_ENABLED", "SWEEP_SCHEDULE", "SWEEP_INTERVAL", "SWEEP_MAX_TASKS", "SWEEP_TASKS",
+	"MAX_DAILY_TOKENS", "MAX_DAILY_USD", "AGENT_MAX_TOKENS", "RATE_LIMIT_STRATEGY", "RATE_LIMIT_COOLDOWN",
+	"SWEEP_ENABLED", "SWEEP_SCHEDULE", "SWEEP_INTERVAL", "SWEEP_MAX_TASKS", "SWEEP_TIMEOUT_MINUTES", "SWEEP_TASKS",
 }
 
 func isolateEnv(t *testing.T) {
@@ -83,6 +83,44 @@ AGENT_TIMEOUT_MINUTES="60"
 	if cfg.MainBranch != DefaultMainBranch {
 		t.Errorf("MainBranch: %q", cfg.MainBranch)
 	}
+}
+
+func TestLoad_PerRunTokenCeilingAndSweepTimeout(t *testing.T) {
+	isolateEnv(t)
+
+	t.Run("defaults", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AgentMaxTokens != 0 {
+			t.Errorf("AgentMaxTokens default: got %d, want 0 (off)", cfg.AgentMaxTokens)
+		}
+		if cfg.SweepTimeout != DefaultSweepTimeout {
+			t.Errorf("SweepTimeout default: got %v, want %v", cfg.SweepTimeout, DefaultSweepTimeout)
+		}
+	})
+
+	t.Run("overrides", func(t *testing.T) {
+		dir := t.TempDir()
+		writeFile(t, filepath.Join(dir, ".env"), `
+LINEAR_API_KEY="lin_xyz"
+AGENT_MAX_TOKENS="5000000"
+SWEEP_TIMEOUT_MINUTES="10"
+`)
+		cfg, err := Load(dir)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		if cfg.AgentMaxTokens != 5_000_000 {
+			t.Errorf("AgentMaxTokens: got %d, want 5000000", cfg.AgentMaxTokens)
+		}
+		if cfg.SweepTimeout != 10*time.Minute {
+			t.Errorf("SweepTimeout: got %v, want 10m", cfg.SweepTimeout)
+		}
+	})
 }
 
 func TestLoad_VerboseNotifications(t *testing.T) {

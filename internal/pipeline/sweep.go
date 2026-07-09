@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
@@ -181,16 +182,23 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	prompt := job.Task.Prompt(wt.Path)
 	offset := agent.OffsetBefore(logFile)
 
+	sweepMaxTokens := p.cfg.AgentMaxTokens
+	if sweepMaxTokens <= 0 {
+		sweepMaxTokens = config.DefaultSweepMaxTokens
+	}
+
 	logger.Info("running agent",
 		"backend", backend.Name(),
 		"log", logFile,
-		"timeout", p.cfg.AgentTimeout)
+		"timeout", p.cfg.SweepTimeout,
+		"max_tokens", sweepMaxTokens)
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
-		Workdir: wt.Path,
-		Prompt:  prompt,
-		LogFile: logFile,
-		Timeout: p.cfg.AgentTimeout,
+		Workdir:   wt.Path,
+		Prompt:    prompt,
+		LogFile:   logFile,
+		Timeout:   p.cfg.SweepTimeout,
+		MaxTokens: sweepMaxTokens,
 	})
 
 	// Killed or shutdown — clean up without recording.
@@ -204,7 +212,15 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	if errors.Is(runErr, agent.ErrTimedOut) {
-		logger.Warn("sweep task timed out", "timeout", p.cfg.AgentTimeout)
+		logger.Warn("sweep task timed out", "timeout", p.cfg.SweepTimeout)
+		return
+	}
+
+	if errors.Is(runErr, agent.ErrTokenCapExceeded) {
+		p.budget.Record(usage.TotalTokens, usage.CostUSD)
+		p.recordUsage(usage, "sweep", identifier, "", backend)
+		logger.Warn("sweep task aborted: per-run token ceiling reached",
+			"max_tokens", sweepMaxTokens, "tokens", usage.TotalTokens)
 		return
 	}
 
@@ -360,10 +376,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 				logger.Info("asking the agent to fix review issues")
 				fixOffset := agent.OffsetBefore(logFile)
 				fixUsage, fixErr := backend.Run(ctx, agent.RunOptions{
-					Workdir: wt.Path,
-					Prompt:  fixPrompt,
-					LogFile: logFile,
-					Timeout: p.cfg.AgentTimeout,
+					Workdir:   wt.Path,
+					Prompt:    fixPrompt,
+					LogFile:   logFile,
+					Timeout:   p.cfg.SweepTimeout,
+					MaxTokens: sweepMaxTokens,
 				})
 
 				if p.isKilled(identifier) {
@@ -388,7 +405,10 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 				switch classifyAgentRun(backend, fixErr, fixOutput) {
 				case agentRunTimedOut:
-					logger.Warn("fix-pass timed out", "timeout", p.cfg.AgentTimeout)
+					logger.Warn("fix-pass timed out", "timeout", p.cfg.SweepTimeout)
+					return
+				case agentRunTokenCapped:
+					logger.Warn("fix-pass aborted: per-run token ceiling reached", "max_tokens", sweepMaxTokens)
 					return
 				case agentRunRateLimited:
 					logger.Warn("usage/rate limit detected during fix-pass")

@@ -97,6 +97,28 @@ func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
 	}
 }
 
+func TestClaudeStreamArgs_UsesStreamJSONWithVerbose(t *testing.T) {
+	args := claudeStreamArgs(RunOptions{Prompt: "do the thing"})
+	// stream-json is what lets runCapped watch cumulative usage mid-flight; it requires --verbose.
+	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "stream-json" {
+		t.Errorf("claudeStreamArgs must request --output-format stream-json: %v", args)
+	}
+	if !slices.Contains(args, "--verbose") {
+		t.Errorf("claudeStreamArgs missing --verbose (required by stream-json): %v", args)
+	}
+	i := slices.Index(args, "-p")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
+		t.Errorf("claudeStreamArgs did not pass prompt after -p: %v", args)
+	}
+}
+
+func TestClaudeUsageTotal_SumsAllTokenBuckets(t *testing.T) {
+	u := claudeUsage{InputTokens: 10, OutputTokens: 20, CacheCreationInputTokens: 5, CacheReadInputTokens: 100}
+	if got, want := u.total(), int64(135); got != want {
+		t.Errorf("claudeUsage.total() = %d, want %d", got, want)
+	}
+}
+
 func TestCodexArgs_UsesExecAndPositionalPrompt(t *testing.T) {
 	args := codexArgs(RunOptions{Prompt: "do the thing"})
 	if len(args) == 0 || args[0] != "exec" {
