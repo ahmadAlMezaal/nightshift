@@ -221,6 +221,15 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		p.recordUsage(usage, "sweep", identifier, "", backend)
 		logger.Warn("sweep task aborted: per-run token ceiling reached",
 			"max_tokens", sweepMaxTokens, "tokens", usage.TotalTokens)
+		// A cap abort is a real attempt, not a transient timeout — record the cooldown or the same repo/task stays eligible and re-burns the cap next cycle.
+		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+			logger.Warn("could not record sweep run in state", "err", err)
+		}
+		p.recordRun(state.RunHistory{
+			Identifier: identifier, Repo: job.RepoSlug,
+			AgentBackend: backend.Name(), RunType: "sweep",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
 		return
 	}
 
