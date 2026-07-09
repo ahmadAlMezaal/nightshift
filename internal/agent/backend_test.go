@@ -99,7 +99,6 @@ func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
 
 func TestClaudeStreamArgs_UsesStreamJSONWithVerbose(t *testing.T) {
 	args := claudeStreamArgs(RunOptions{Prompt: "do the thing"})
-	// stream-json is what lets runCapped watch cumulative usage mid-flight; it requires --verbose.
 	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "stream-json" {
 		t.Errorf("claudeStreamArgs must request --output-format stream-json: %v", args)
 	}

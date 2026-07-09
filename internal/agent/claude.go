@@ -19,7 +19,7 @@ func (claudeBackend) Label() string    { return "Claude Code" }
 func (claudeBackend) CLI() string      { return "claude" }
 func (claudeBackend) CoAuthor() string { return "Claude <noreply@anthropic.com>" }
 
-// Run invokes `claude --print --output-format json`, unwrapping the JSON result into the log and returning usage/cost from the envelope; falls back to raw output when stdout isn't a JSON result object. When opts.MaxTokens > 0 it switches to a streaming path that aborts mid-flight once cumulative usage crosses the ceiling.
+// Run invokes `claude --print --output-format json`, unwrapping the JSON result into the log and returning usage/cost from the envelope; falls back to raw output when stdout isn't a JSON result object.
 func (b claudeBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
 	var env []string
 	if opts.UseAgentTeams {
@@ -50,7 +50,6 @@ func claudeArgs(opts RunOptions) []string {
 	}
 }
 
-// claudeStreamArgs mirrors claudeArgs but streams NDJSON events so cumulative usage can be watched mid-flight (stream-json requires --verbose).
 func claudeStreamArgs(opts RunOptions) []string {
 	return []string{
 		"--dangerously-skip-permissions",
@@ -61,7 +60,6 @@ func claudeStreamArgs(opts RunOptions) []string {
 	}
 }
 
-// claudeStreamEvent is the subset of Claude Code's stream-json events Noctra reads: per-turn usage on assistant events (for the running total) and the final result envelope (authoritative usage/cost + summary text).
 type claudeStreamEvent struct {
 	Type         string      `json:"type"`
 	Result       string      `json:"result"`
@@ -83,7 +81,6 @@ func (u claudeUsage) total() int64 {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
-// runCapped streams Claude Code's NDJSON output, accumulating per-turn token usage, and cancels the run once it crosses opts.MaxTokens. The running total (summed across assistant turns) is approximate — it's a monotonic ceiling trigger, not exact accounting; the returned Usage is the authoritative final envelope when the run completes.
 func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []string) (Usage, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 	if opts.Timeout > 0 {
