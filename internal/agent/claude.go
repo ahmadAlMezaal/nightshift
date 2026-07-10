@@ -62,6 +62,7 @@ func claudeStreamArgs(opts RunOptions) []string {
 
 type claudeStreamEvent struct {
 	Type         string      `json:"type"`
+	Subtype      string      `json:"subtype"`
 	Result       string      `json:"result"`
 	TotalCostUSD float64     `json:"total_cost_usd"`
 	Usage        claudeUsage `json:"usage"`
@@ -79,6 +80,45 @@ type claudeUsage struct {
 
 func (u claudeUsage) total() int64 {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// streamTail keeps the most recent non-conversation stream events, bounded, so
+// failure markers that only appear on stdout — e.g. system/api_retry rate-limit
+// notices — survive into the run log, where rateLimited/HasRateLimit scans them.
+type streamTail struct {
+	lines [][]byte
+	size  int
+}
+
+const streamTailMax = 16 << 10
+
+func (t *streamTail) add(line []byte) {
+	l := append([]byte(nil), line...)
+	t.lines = append(t.lines, l)
+	t.size += len(l)
+	for t.size > streamTailMax && len(t.lines) > 1 {
+		t.size -= len(t.lines[0])
+		t.lines = t.lines[1:]
+	}
+}
+
+func (t *streamTail) String() string {
+	return string(bytes.Join(t.lines, []byte("\n")))
+}
+
+// tailWorthy reports whether a stream event should be preserved in the run log:
+// everything except conversation traffic (assistant/user), the init handshake,
+// and a final result that already lands in the log via its result text.
+func tailWorthy(ev claudeStreamEvent) bool {
+	switch ev.Type {
+	case "assistant", "user":
+		return false
+	case "system":
+		return ev.Subtype != "init"
+	case "result":
+		return ev.Result == ""
+	}
+	return true
 }
 
 func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []string) (Usage, error) {
@@ -108,13 +148,16 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 		result    string
 		cumTokens int64
 		aborted   bool
+		tail      streamTail
 	)
 	reader := bufio.NewReader(pipe)
 	for {
 		line, rerr := reader.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
 			var ev claudeStreamEvent
-			if json.Unmarshal(bytes.TrimSpace(line), &ev) == nil {
+			if json.Unmarshal(trimmed, &ev) != nil {
+				tail.add(trimmed)
+			} else {
 				switch ev.Type {
 				case "assistant":
 					cumTokens += ev.Message.Usage.total()
@@ -132,6 +175,9 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 					}
 					result = ev.Result
 				}
+				if tailWorthy(ev) {
+					tail.add(trimmed)
+				}
 			}
 		}
 		if rerr != nil {
@@ -141,6 +187,9 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 	waitErr := cmd.Wait()
 
 	body := result
+	if tail.size > 0 {
+		body += "\n\n[noctra] non-result stream events:\n" + tail.String()
+	}
 	if aborted {
 		body += fmt.Sprintf("\n\n[noctra] run aborted: per-run token ceiling %d reached (cumulative ~%d)", opts.MaxTokens, cumTokens)
 	}
