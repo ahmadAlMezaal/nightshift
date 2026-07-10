@@ -170,6 +170,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 		LogFile:       logFile,
 		Timeout:       p.cfg.AgentTimeout,
 		UseAgentTeams: p.cfg.UseAgentTeams,
+		MaxTokens:     p.cfg.AgentMaxTokens,
 	})
 
 	if p.isKilled(id) {
@@ -192,6 +193,26 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 			p.cfg.AgentTimeout, p.cfg.TriggerState))
 		p.notifier.Send(ctx, fmt.Sprintf("⏰ *%s* — %s\nTimed out after %s. Moving back to %s.",
 			id, notify.EscapeMarkdown(issue.Title), p.cfg.AgentTimeout, notify.EscapeMarkdown(p.cfg.TriggerState)))
+		p.recordRun(state.RunHistory{
+			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
+			AgentBackend: backend.Name(), RunType: "ticket",
+			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
+		})
+		repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+		return
+	}
+
+	if errors.Is(runErr, agent.ErrTokenCapExceeded) {
+		p.budget.Record(usage.TotalTokens, usage.CostUSD)
+		p.recordUsage(usage, "ticket", id, "", backend)
+		logger.Warn("aborted: per-run token ceiling reached",
+			"max_tokens", p.cfg.AgentMaxTokens, "tokens", usage.TotalTokens)
+		p.bumpFailed(id)
+		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
+			"🧯 **Noctra: Per-run token ceiling reached**\n\nThe agent used ~%d tokens on this ticket and was stopped at the `AGENT_MAX_TOKENS` ceiling (%d) before finishing.\n\nThe ticket may be too broad for one session. Consider narrowing its scope.\n\nTicket moved back to **%s**.",
+			usage.TotalTokens, p.cfg.AgentMaxTokens, p.cfg.TriggerState))
+		p.notifier.Send(ctx, fmt.Sprintf("🧯 *%s* — %s\nStopped at token ceiling (%d). Moving back to %s.",
+			id, notify.EscapeMarkdown(issue.Title), p.cfg.AgentMaxTokens, notify.EscapeMarkdown(p.cfg.TriggerState)))
 		p.recordRun(state.RunHistory{
 			Identifier: id, TicketID: id, Repo: filepath.Base(resolved.Path),
 			AgentBackend: backend.Name(), RunType: "ticket",
@@ -394,6 +415,7 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 					LogFile:       logFile,
 					Timeout:       p.cfg.AgentTimeout,
 					UseAgentTeams: p.cfg.UseAgentTeams,
+					MaxTokens:     p.cfg.AgentMaxTokens,
 				})
 
 				if p.isKilled(id) {
@@ -425,6 +447,14 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 					p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
 						"⏰ **Noctra: Agent timed out**\n\n%s timed out after %s while fixing Gemini review feedback.\n\nTicket moved back to **%s**.",
 						backend.Label(), p.cfg.AgentTimeout, p.cfg.TriggerState))
+					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
+					return
+				case agentRunTokenCapped:
+					logger.Warn("fix-pass aborted: per-run token ceiling reached", "max_tokens", p.cfg.AgentMaxTokens)
+					p.bumpFailed(id)
+					p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
+						"🧯 **Noctra: Per-run token ceiling reached**\n\n%s was stopped at the `AGENT_MAX_TOKENS` ceiling (%d) while fixing Gemini review feedback.\n\nTicket moved back to **%s**.",
+						backend.Label(), p.cfg.AgentMaxTokens, p.cfg.TriggerState))
 					repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 					return
 				case agentRunRateLimited:
@@ -762,12 +792,16 @@ const (
 	agentRunOK agentRunStatus = iota
 	agentRunTimedOut
 	agentRunRateLimited
+	agentRunTokenCapped
 	agentRunFailed
 )
 
 func classifyAgentRun(b agent.Backend, runErr error, output string) agentRunStatus {
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		return agentRunTimedOut
+	}
+	if errors.Is(runErr, agent.ErrTokenCapExceeded) {
+		return agentRunTokenCapped
 	}
 	if rateLimited(b, runErr, output) {
 		return agentRunRateLimited

@@ -751,7 +751,12 @@ func (p *Pipeline) banner() {
 		if n := len(p.cfg.SweepRepos); n > 0 {
 			scope = fmt.Sprintf("%d listed repo(s)", n)
 		}
-		sweepMode = fmt.Sprintf("On (%s, max %d tasks, %s)", cadence, p.cfg.SweepMaxTasks, scope)
+		sweepMode = fmt.Sprintf("On (%s, max %d tasks, %s, timeout %s)", cadence, p.cfg.SweepMaxTasks, scope, p.cfg.SweepTimeout)
+	}
+
+	tokenCeiling := "off"
+	if p.cfg.AgentMaxTokens > 0 {
+		tokenCeiling = fmt.Sprintf("%d tokens/run", p.cfg.AgentMaxTokens)
 	}
 
 	// Repos are routed per-ticket via each project's "Repo:" directive — report the routing mode plus existing clone count.
@@ -797,6 +802,7 @@ func (p *Pipeline) banner() {
 	fmt.Printf("   Max concurrent: %d\n", p.cfg.MaxConcurrent)
 	fmt.Printf("   Poll interval:  %s\n", p.cfg.PollInterval)
 	fmt.Printf("   Agent timeout:  %s\n", p.cfg.AgentTimeout)
+	fmt.Printf("   Token ceiling:  %s\n", tokenCeiling)
 	fmt.Printf("   Max retries:    %d per ticket\n", p.cfg.MaxRetries)
 	if p.cfg.MaxDispatches > 0 {
 		fmt.Printf("   Max dispatches: %d per day (UTC)\n", p.cfg.MaxDispatches)

@@ -1,10 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -94,6 +97,74 @@ func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
 	// JSON output is required for usage/cost capture.
 	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "json" {
 		t.Errorf("claudeArgs must request --output-format json: %v", args)
+	}
+}
+
+func TestClaudeStreamArgs_UsesStreamJSONWithVerbose(t *testing.T) {
+	args := claudeStreamArgs(RunOptions{Prompt: "do the thing"})
+	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "stream-json" {
+		t.Errorf("claudeStreamArgs must request --output-format stream-json: %v", args)
+	}
+	if !slices.Contains(args, "--verbose") {
+		t.Errorf("claudeStreamArgs missing --verbose (required by stream-json): %v", args)
+	}
+	i := slices.Index(args, "-p")
+	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
+		t.Errorf("claudeStreamArgs did not pass prompt after -p: %v", args)
+	}
+}
+
+func TestClaudeUsageTotal_SumsAllTokenBuckets(t *testing.T) {
+	u := claudeUsage{InputTokens: 10, OutputTokens: 20, CacheCreationInputTokens: 5, CacheReadInputTokens: 100}
+	if got, want := u.total(), int64(135); got != want {
+		t.Errorf("claudeUsage.total() = %d, want %d", got, want)
+	}
+}
+
+func TestTailWorthy_KeepsFailureSignalsDropsConversation(t *testing.T) {
+	cases := []struct {
+		name string
+		ev   claudeStreamEvent
+		want bool
+	}{
+		{"system api_retry", claudeStreamEvent{Type: "system", Subtype: "api_retry"}, true},
+		{"system init", claudeStreamEvent{Type: "system", Subtype: "init"}, false},
+		{"assistant", claudeStreamEvent{Type: "assistant"}, false},
+		{"user", claudeStreamEvent{Type: "user"}, false},
+		{"result with text", claudeStreamEvent{Type: "result", Result: "done"}, false},
+		{"error result without text", claudeStreamEvent{Type: "result"}, true},
+		{"unknown type", claudeStreamEvent{Type: "surprise"}, true},
+	}
+	for _, tc := range cases {
+		if got := tailWorthy(tc.ev); got != tc.want {
+			t.Errorf("tailWorthy(%s) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestStreamTail_BoundsSizeKeepingNewest(t *testing.T) {
+	var tail streamTail
+	line := bytes.Repeat([]byte("x"), 1024)
+	for i := 0; i < 100; i++ {
+		tail.add(append([]byte(fmt.Sprintf("%03d-", i)), line...))
+	}
+	if tail.size > streamTailMax {
+		t.Errorf("tail size %d exceeds cap %d", tail.size, streamTailMax)
+	}
+	s := tail.String()
+	if !strings.Contains(s, "099-") {
+		t.Error("tail dropped the newest line")
+	}
+	if strings.Contains(s, "000-") {
+		t.Error("tail kept the oldest line past the cap")
+	}
+}
+
+func TestStreamTail_KeepsSingleOversizedLine(t *testing.T) {
+	var tail streamTail
+	tail.add(bytes.Repeat([]byte("y"), streamTailMax+1))
+	if len(tail.lines) != 1 {
+		t.Errorf("oversized single line must survive, got %d lines", len(tail.lines))
 	}
 }
 

@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
+	"os/exec"
 	"regexp"
 )
 
@@ -20,6 +25,11 @@ func (b claudeBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) 
 	if opts.UseAgentTeams {
 		env = append(os.Environ(), "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
 	}
+
+	if opts.MaxTokens > 0 {
+		return b.runCapped(ctx, opts, env)
+	}
+
 	stdout, stderr, err := runCLICapture(ctx, b.CLI(), claudeArgs(opts), env, opts)
 
 	if usage, result, ok := ParseClaudeJSON(stdout); ok {
@@ -38,6 +48,166 @@ func claudeArgs(opts RunOptions) []string {
 		"--output-format", "json",
 		"-p", opts.Prompt,
 	}
+}
+
+func claudeStreamArgs(opts RunOptions) []string {
+	return []string{
+		"--dangerously-skip-permissions",
+		"--print",
+		"--output-format", "stream-json",
+		"--verbose",
+		"-p", opts.Prompt,
+	}
+}
+
+type claudeStreamEvent struct {
+	Type         string      `json:"type"`
+	Subtype      string      `json:"subtype"`
+	Result       string      `json:"result"`
+	TotalCostUSD float64     `json:"total_cost_usd"`
+	Usage        claudeUsage `json:"usage"`
+	Message      struct {
+		Usage claudeUsage `json:"usage"`
+	} `json:"message"`
+}
+
+type claudeUsage struct {
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+}
+
+func (u claudeUsage) total() int64 {
+	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+// streamTail keeps the most recent non-conversation stream events, bounded, so
+// failure markers that only appear on stdout — e.g. system/api_retry rate-limit
+// notices — survive into the run log, where rateLimited/HasRateLimit scans them.
+type streamTail struct {
+	lines [][]byte
+	size  int
+}
+
+const streamTailMax = 16 << 10
+
+func (t *streamTail) add(line []byte) {
+	l := append([]byte(nil), line...)
+	t.lines = append(t.lines, l)
+	t.size += len(l)
+	for t.size > streamTailMax && len(t.lines) > 1 {
+		t.size -= len(t.lines[0])
+		t.lines = t.lines[1:]
+	}
+}
+
+func (t *streamTail) String() string {
+	return string(bytes.Join(t.lines, []byte("\n")))
+}
+
+// tailWorthy reports whether a stream event should be preserved in the run log:
+// everything except conversation traffic (assistant/user), the init handshake,
+// and a final result that already lands in the log via its result text.
+func tailWorthy(ev claudeStreamEvent) bool {
+	switch ev.Type {
+	case "assistant", "user":
+		return false
+	case "system":
+		return ev.Subtype != "init"
+	case "result":
+		return ev.Result == ""
+	}
+	return true
+}
+
+func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []string) (Usage, error) {
+	runCtx, cancel := context.WithCancel(ctx)
+	if opts.Timeout > 0 {
+		runCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
+	}
+	defer cancel()
+
+	cmd := exec.CommandContext(runCtx, b.CLI(), claudeStreamArgs(opts)...)
+	cmd.Dir = opts.Workdir
+	if env != nil {
+		cmd.Env = env
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	pipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return Usage{}, fmt.Errorf("stdout pipe: %w", err)
+	}
+	if err := cmd.Start(); err != nil {
+		return Usage{}, fmt.Errorf("start claude: %w", err)
+	}
+
+	var (
+		final     Usage
+		result    string
+		cumTokens int64
+		aborted   bool
+		tail      streamTail
+	)
+	reader := bufio.NewReader(pipe)
+	for {
+		line, rerr := reader.ReadBytes('\n')
+		if trimmed := bytes.TrimSpace(line); len(trimmed) > 0 {
+			var ev claudeStreamEvent
+			if json.Unmarshal(trimmed, &ev) != nil {
+				tail.add(trimmed)
+			} else {
+				switch ev.Type {
+				case "assistant":
+					cumTokens += ev.Message.Usage.total()
+					if !aborted && cumTokens >= opts.MaxTokens {
+						aborted = true
+						cancel()
+					}
+				case "result":
+					in := ev.Usage.InputTokens + ev.Usage.CacheCreationInputTokens + ev.Usage.CacheReadInputTokens
+					final = Usage{
+						InputTokens:  in,
+						OutputTokens: ev.Usage.OutputTokens,
+						TotalTokens:  in + ev.Usage.OutputTokens,
+						CostUSD:      ev.TotalCostUSD,
+					}
+					result = ev.Result
+				}
+				if tailWorthy(ev) {
+					tail.add(trimmed)
+				}
+			}
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	waitErr := cmd.Wait()
+
+	body := result
+	if tail.size > 0 {
+		body += "\n\n[noctra] non-result stream events:\n" + tail.String()
+	}
+	if aborted {
+		body += fmt.Sprintf("\n\n[noctra] run aborted: per-run token ceiling %d reached (cumulative ~%d)", opts.MaxTokens, cumTokens)
+	}
+	writeRunLog(ctx, opts, body+stderr.String())
+
+	if aborted {
+		if final.TotalTokens == 0 {
+			final.TotalTokens = cumTokens
+		}
+		return final, fmt.Errorf("%w: cumulative ~%d tokens (ceiling %d)", ErrTokenCapExceeded, cumTokens, opts.MaxTokens)
+	}
+	if waitErr != nil {
+		if runCtx.Err() == context.DeadlineExceeded {
+			return final, fmt.Errorf("%w: %w", ErrTimedOut, waitErr)
+		}
+		return final, waitErr
+	}
+	return final, nil
 }
 
 // claudeRateLimitRe matches the usage / rate-limit markers Claude Code emits.

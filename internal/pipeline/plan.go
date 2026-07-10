@@ -234,10 +234,11 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 	offset := agent.OffsetBefore(logFile)
 
 	usage, runErr := backend.Run(ctx, agent.RunOptions{
-		Workdir: wt.Path,
-		Prompt:  prompt,
-		LogFile: logFile,
-		Timeout: p.cfg.AgentTimeout,
+		Workdir:   wt.Path,
+		Prompt:    prompt,
+		LogFile:   logFile,
+		Timeout:   p.cfg.AgentTimeout,
+		MaxTokens: p.cfg.AgentMaxTokens,
 	})
 
 	if p.isKilled(id) {
