@@ -71,6 +71,8 @@ type Pipeline struct {
 	dispatchCapped    bool
 	successCount      int
 	failCount         int
+	dailySuccessCount int
+	dailyFailCount    int
 	rateLimitDetected bool
 	paused            bool
 }
@@ -347,6 +349,8 @@ func (p *Pipeline) rollDispatchWindow(now time.Time) {
 		p.dispatchWindow = day
 		p.totalDispatches = 0
 		p.dispatchCapped = false
+		p.dailySuccessCount = 0
+		p.dailyFailCount = 0
 	}
 }
 
@@ -551,8 +555,10 @@ func (p *Pipeline) dispatchPaused() bool {
 
 func (p *Pipeline) bumpFailed(id string) int {
 	p.mu.Lock()
+	p.rollDispatchWindow(time.Now())
 	p.failedAttempts[id]++
 	p.failCount++
+	p.dailyFailCount++
 	attempts := p.failedAttempts[id]
 	p.mu.Unlock()
 	p.publishDashboardChange()
@@ -561,7 +567,9 @@ func (p *Pipeline) bumpFailed(id string) int {
 
 func (p *Pipeline) bumpSuccess() {
 	p.mu.Lock()
+	p.rollDispatchWindow(time.Now())
 	p.successCount++
+	p.dailySuccessCount++
 	p.mu.Unlock()
 	p.publishDashboardChange()
 }
