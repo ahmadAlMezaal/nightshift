@@ -30,12 +30,15 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 
 func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 	p.mu.Lock()
+	p.rollDispatchWindow(time.Now())
 	active := make([]string, 0, len(p.active))
 	for id := range p.active {
 		active = append(active, id)
 	}
 	succ := p.successCount
 	fail := p.failCount
+	dailySucc := p.dailySuccessCount
+	dailyFail := p.dailyFailCount
 	dispatches := p.totalDispatches
 	maxD := p.cfg.MaxDispatches
 	maxC := p.cfg.MaxConcurrent
@@ -62,15 +65,18 @@ func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
 		}
 	}
 
-	b.WriteString("\n*Session:*\n")
+	b.WriteString("\n*Today (UTC):*\n")
+	fmt.Fprintf(&b, "✅ %d PRs created\n", dailySucc)
+	fmt.Fprintf(&b, "❌ %d failed\n", dailyFail)
+	if maxD > 0 {
+		fmt.Fprintf(&b, "📦 %d/%d ticket dispatches\n", dispatches, maxD)
+	} else {
+		fmt.Fprintf(&b, "📦 %d ticket dispatches (no cap)\n", dispatches)
+	}
+
+	fmt.Fprintf(&b, "\n*Session (%s):*\n", uptime)
 	fmt.Fprintf(&b, "✅ %d PRs created\n", succ)
 	fmt.Fprintf(&b, "❌ %d failed\n", fail)
-	if maxD > 0 {
-		fmt.Fprintf(&b, "📦 %d/%d dispatches today\n", dispatches, maxD)
-	} else {
-		fmt.Fprintf(&b, "📦 %d dispatches today (no cap)\n", dispatches)
-	}
-	fmt.Fprintf(&b, "⏱ Uptime: %s\n", uptime)
 
 	bs := p.budget.Stats()
 	if bs.SessionTokens > 0 || bs.SessionCostUSD > 0 || bs.HasCaps() {

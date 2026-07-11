@@ -66,10 +66,13 @@ func TestHandleStatus_Active(t *testing.T) {
 			"ENG-42": {},
 			"ENG-44": {},
 		},
-		successCount:    2,
-		failCount:       1,
-		totalDispatches: 5,
-		sessionStart:    time.Now().Add(-1 * time.Hour),
+		successCount:      9,
+		failCount:         4,
+		dailySuccessCount: 2,
+		dailyFailCount:    1,
+		totalDispatches:   5,
+		dispatchWindow:    time.Now().UTC().Truncate(24 * time.Hour),
+		sessionStart:      time.Now().Add(-1 * time.Hour),
 	}
 	reply := p.handleStatus(context.Background(), "")
 	if !strings.Contains(reply, "2/3") {
@@ -81,14 +84,22 @@ func TestHandleStatus_Active(t *testing.T) {
 	if !strings.Contains(reply, "ENG-44") {
 		t.Errorf("expected ENG-44 in reply, got %q", reply)
 	}
+	// Session-cumulative counts.
+	if !strings.Contains(reply, "9 PRs created") {
+		t.Errorf("expected session success count in reply, got %q", reply)
+	}
+	if !strings.Contains(reply, "4 failed") {
+		t.Errorf("expected session fail count in reply, got %q", reply)
+	}
+	// Today (UTC) counts — distinct window from the session totals.
 	if !strings.Contains(reply, "2 PRs created") {
-		t.Errorf("expected success count in reply, got %q", reply)
+		t.Errorf("expected daily success count in reply, got %q", reply)
 	}
 	if !strings.Contains(reply, "1 failed") {
-		t.Errorf("expected fail count in reply, got %q", reply)
+		t.Errorf("expected daily fail count in reply, got %q", reply)
 	}
-	if !strings.Contains(reply, "5/10") {
-		t.Errorf("expected dispatch count in reply, got %q", reply)
+	if !strings.Contains(reply, "5/10 ticket dispatches") {
+		t.Errorf("expected labelled dispatch count in reply, got %q", reply)
 	}
 }
 
@@ -937,8 +948,42 @@ func TestHandleStatus_UptimeFormat(t *testing.T) {
 		sessionStart: time.Now().Add(-2*time.Hour - 30*time.Minute),
 	}
 	reply := p.handleStatus(context.Background(), "")
-	if !strings.Contains(reply, "Uptime") {
-		t.Errorf("expected uptime in reply, got %q", reply)
+	if !strings.Contains(reply, "Session (") {
+		t.Errorf("expected session uptime header in reply, got %q", reply)
+	}
+}
+
+// TestHandleStatus_RollsWindowBeforeRead locks in ENG-352 requirement 1: /status
+// invoked after UTC midnight (before any poll) must show 0 for today, not the
+// prior day's counts left over in the fields.
+func TestHandleStatus_RollsWindowBeforeRead(t *testing.T) {
+	p := &Pipeline{
+		cfg: &config.Config{
+			MaxConcurrent: 3,
+			MaxDispatches: 25,
+		},
+		budget: budget.New(budget.Config{}),
+		active: map[string]struct{}{},
+		// Yesterday's window with yesterday's counts still populated.
+		dispatchWindow:    time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour),
+		totalDispatches:   13,
+		dailySuccessCount: 13,
+		dailyFailCount:    2,
+		// Session totals survive the roll.
+		successCount: 13,
+		failCount:    2,
+		sessionStart: time.Now().Add(-133 * time.Hour),
+	}
+	reply := p.handleStatus(context.Background(), "")
+	if !strings.Contains(reply, "0/25 ticket dispatches") {
+		t.Errorf("expected today's dispatches rolled to 0/25, got %q", reply)
+	}
+	if !strings.Contains(reply, "*Today (UTC):*\n✅ 0 PRs created\n❌ 0 failed") {
+		t.Errorf("expected today's PR/fail counts rolled to 0, got %q", reply)
+	}
+	// The session-cumulative block keeps the running totals.
+	if !strings.Contains(reply, "13 PRs created") || !strings.Contains(reply, "2 failed") {
+		t.Errorf("expected session totals preserved, got %q", reply)
 	}
 }
 

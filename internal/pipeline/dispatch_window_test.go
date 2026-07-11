@@ -37,12 +37,18 @@ func TestRollDispatchWindow_ResetsAtUTCMidnight(t *testing.T) {
 	p.rollDispatchWindow(day1)
 	p.totalDispatches = 7
 	p.dispatchCapped = true
+	p.dailySuccessCount = 5
+	p.dailyFailCount = 2
 
 	// Same day, later — must NOT reset.
 	p.rollDispatchWindow(day1.Add(8 * time.Hour))
 	if p.totalDispatches != 7 || !p.dispatchCapped {
 		t.Fatalf("same-day roll reset state: got count=%d capped=%v, want 7/true",
 			p.totalDispatches, p.dispatchCapped)
+	}
+	if p.dailySuccessCount != 5 || p.dailyFailCount != 2 {
+		t.Fatalf("same-day roll reset daily counters: got succ=%d fail=%d, want 5/2",
+			p.dailySuccessCount, p.dailyFailCount)
 	}
 
 	// New UTC day — must reset the counter and clear the alert flag.
@@ -52,5 +58,45 @@ func TestRollDispatchWindow_ResetsAtUTCMidnight(t *testing.T) {
 	}
 	if p.dispatchCapped {
 		t.Fatal("cap alert flag not cleared at new day")
+	}
+	if p.dailySuccessCount != 0 || p.dailyFailCount != 0 {
+		t.Fatalf("daily counters not reset at new day: got succ=%d fail=%d, want 0/0",
+			p.dailySuccessCount, p.dailyFailCount)
+	}
+}
+
+// TestBumpSuccessFeedsDailyCounter locks in ENG-352 requirement 2: any PR-producing
+// path (ticket or sweep) that calls bumpSuccess must raise the daily counter, and
+// the daily counter resets when the UTC-midnight window rolls.
+func TestBumpSuccessFeedsDailyCounter(t *testing.T) {
+	p := &Pipeline{
+		active:         map[string]struct{}{},
+		failedAttempts: map[string]int{},
+		dispatchWindow: time.Now().UTC().Truncate(24 * time.Hour),
+	}
+
+	p.bumpSuccess() // e.g. a sweep-created PR
+	p.bumpSuccess()
+	if p.dailySuccessCount != 2 {
+		t.Fatalf("bumpSuccess did not feed daily counter: got %d, want 2", p.dailySuccessCount)
+	}
+	if p.successCount != 2 {
+		t.Fatalf("bumpSuccess did not feed session counter: got %d, want 2", p.successCount)
+	}
+
+	p.bumpFailed("ENG-1")
+	if p.dailyFailCount != 1 || p.failCount != 1 {
+		t.Fatalf("bumpFailed counters: got daily=%d session=%d, want 1/1", p.dailyFailCount, p.failCount)
+	}
+
+	// Roll to a new day — daily counters reset, session counters persist.
+	p.rollDispatchWindow(p.dispatchWindow.Add(24 * time.Hour))
+	if p.dailySuccessCount != 0 || p.dailyFailCount != 0 {
+		t.Fatalf("daily counters survived window roll: got succ=%d fail=%d, want 0/0",
+			p.dailySuccessCount, p.dailyFailCount)
+	}
+	if p.successCount != 2 || p.failCount != 1 {
+		t.Fatalf("session counters reset by window roll: got succ=%d fail=%d, want 2/1",
+			p.successCount, p.failCount)
 	}
 }
