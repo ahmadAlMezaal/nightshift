@@ -64,7 +64,7 @@ func Add(ctx context.Context, cloner Cloner, projects Projects, req Request) (Re
 		return res, errors.New("no Linear client is configured, so the routing directive was not written")
 	}
 	if req.Project.ID == "" {
-		return res, fmt.Errorf("Linear project %q has no ID, so the routing directive was not written", req.Project.Name)
+		return res, fmt.Errorf("project %q has no Linear ID, so the routing directive was not written", req.Project.Name)
 	}
 
 	content := linear.UpsertRepoDirective(req.Project.Content, ref, req.Branch)
