@@ -352,7 +352,7 @@ func (c *Client) SearchIssues(ctx context.Context, term string, limit int) ([]Is
 func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	query := `query($after: String) {
 	  projects(first: 250, after: $after) {
-	    nodes { name description content }
+	    nodes { id name description content slugId url }
 	    pageInfo { hasNextPage endCursor }
 	  }
 	}`
@@ -383,6 +383,26 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 		after = resp.Projects.PageInfo.EndCursor
 	}
 	return out, nil
+}
+
+// UpdateProjectContent overwrites a project's markdown body — the routing directive lives there, so callers pass the result of UpsertRepoDirective rather than raw text.
+func (c *Client) UpdateProjectContent(ctx context.Context, projectID, content string) error {
+	mutation := `mutation($id: String!, $content: String!) {
+	  projectUpdate(id: $id, input: { content: $content }) { success }
+	}`
+
+	var resp struct {
+		ProjectUpdate struct {
+			Success bool `json:"success"`
+		} `json:"projectUpdate"`
+	}
+	if err := c.Do(ctx, mutation, map[string]any{"id": projectID, "content": content}, &resp); err != nil {
+		return err
+	}
+	if !resp.ProjectUpdate.Success {
+		return fmt.Errorf("projectUpdate reported success=false for %s", projectID)
+	}
+	return nil
 }
 
 // FetchLabeledIssues returns every issue carrying the named label across all visible teams (label-mode counterpart of FetchTriggerIssues).
