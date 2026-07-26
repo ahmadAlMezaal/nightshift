@@ -1,4 +1,3 @@
-// Package reposcmd is the CLI counterpart of Telegram's /addrepo: a guided `noctra repos add` for wiring a repository up from the terminal.
 package reposcmd
 
 import (
@@ -22,7 +21,6 @@ const addTimeout = 15 * time.Minute
 
 const maxProjectAttempts = 3
 
-// Run dispatches `noctra repos <subcommand>`.
 func Run(scriptDir string, args []string) error {
 	if len(args) == 0 {
 		printUsage()

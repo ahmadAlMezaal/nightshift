@@ -385,7 +385,6 @@ func (c *Client) ListProjects(ctx context.Context) ([]Project, error) {
 	return out, nil
 }
 
-// UpdateProjectContent overwrites a project's markdown body — the routing directive lives there, so callers pass the result of UpsertRepoDirective rather than raw text.
 func (c *Client) UpdateProjectContent(ctx context.Context, projectID, content string) error {
 	mutation := `mutation($id: String!, $content: String!) {
 	  projectUpdate(id: $id, input: { content: $content }) { success }

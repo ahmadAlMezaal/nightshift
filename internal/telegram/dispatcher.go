@@ -18,12 +18,10 @@ const cancelCommand = "cancel"
 // HandlerFunc processes a command and returns a reply; empty means no reply sent.
 type HandlerFunc func(ctx context.Context, args string) string
 
-// Conversation is a multi-step flow: Answer consumes one plain-text message and returns the next prompt, with done reporting the flow is over.
 type Conversation interface {
 	Answer(ctx context.Context, text string) (reply string, done bool)
 }
 
-// StartFunc opens a flow and returns its first prompt. A nil Conversation means the command replied outright and no flow starts.
 type StartFunc func(ctx context.Context, args string) (prompt string, conv Conversation)
 
 // Dispatcher routes incoming text messages to registered command handlers.
@@ -47,7 +45,7 @@ type session struct {
 	expires time.Time
 }
 
-// NewDispatcher creates a Dispatcher with built-in /help, /ping and /cancel pre-registered.
+// NewDispatcher creates a Dispatcher with built-in /help and /ping pre-registered.
 func NewDispatcher() *Dispatcher {
 	d := &Dispatcher{
 		commands: make(map[string]command),
@@ -63,7 +61,6 @@ func (d *Dispatcher) Register(name, description string, handler HandlerFunc) {
 	d.register(name, command{handler: handler, description: description})
 }
 
-// RegisterConversation adds a command that opens a multi-step flow: plain messages that follow are routed to the returned Conversation until it finishes, times out, or another command interrupts it.
 func (d *Dispatcher) RegisterConversation(name, description string, start StartFunc) {
 	d.register(name, command{start: start, description: description})
 }
@@ -77,7 +74,7 @@ func (d *Dispatcher) register(name string, cmd command) {
 	d.commands[strings.ToLower(name)] = cmd
 }
 
-// Dispatch routes text to a pending flow or a command handler; empty reply means none.
+// Dispatch parses text into command + args and routes to the handler; empty reply means none.
 func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {

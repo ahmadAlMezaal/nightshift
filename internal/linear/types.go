@@ -48,7 +48,6 @@ func (p *Project) RepoDirective() (string, string) {
 	return "", ""
 }
 
-// UpsertRepoDirective returns content with its "Repo:" (and "Branch:") directive set to ref/branch: existing lines are replaced in place, otherwise the block is prepended. An empty branch drops any existing "Branch:" line so a stale pin can't outlive the repo it pinned.
 func UpsertRepoDirective(content, ref, branch string) string {
 	ref = strings.TrimSpace(ref)
 	branch = strings.TrimSpace(branch)
@@ -83,7 +82,6 @@ func UpsertRepoDirective(content, ref, branch string) string {
 	return strings.Join(kept, "\n")
 }
 
-// MatchProjects returns the projects matching query — a pasted linear.app URL, an exact name, or a case-insensitive name substring. An exact match wins outright; more than one result means the caller must disambiguate.
 func MatchProjects(projects []Project, query string) []Project {
 	query = strings.TrimSpace(query)
 	if query == "" {

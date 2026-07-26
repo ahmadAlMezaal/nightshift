@@ -1,4 +1,3 @@
-// Package linearclient builds an authenticated linear.Client from config, shared by every entry point that talks to Linear (the poll loop, CLI subcommands).
 package linearclient
 
 import (
@@ -9,7 +8,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// New picks the strongest credential configured: a self-renewing actor=app token, a static OAuth token, then the personal API key. Both OAuth paths keep the personal key as a fallback so an expired token degrades instead of crash-looping. A nil store means rotated tokens aren't persisted.
 func New(cfg *config.Config, store *state.Store) *linear.Client {
 	if cfg.OAuthPartiallyConfigured() {
 		slog.Warn("linear actor=app config incomplete (need both client id and secret); using personal API key")
