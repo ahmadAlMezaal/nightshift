@@ -9,11 +9,14 @@ import (
 
 // Project is a ticket's Linear project; a "Repo:" directive in its content/description routes the repo.
 type Project struct {
+	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	// Description is Linear's short project description (GraphQL `description`).
 	Description string `json:"description,omitempty"`
 	// Content is the project's markdown body (GraphQL `content`) where the `Repo:` directive lives; RepoDirective reads it first.
 	Content string `json:"content,omitempty"`
+	SlugID  string `json:"slugId,omitempty"`
+	URL     string `json:"url,omitempty"`
 }
 
 var (
@@ -43,6 +46,74 @@ func (p *Project) RepoDirective() (string, string) {
 		return r, b
 	}
 	return "", ""
+}
+
+func UpsertRepoDirective(content, ref, branch string) string {
+	ref = strings.TrimSpace(ref)
+	branch = strings.TrimSpace(branch)
+
+	block := []string{"Repo: " + ref}
+	if branch != "" {
+		block = append(block, "Branch: "+branch)
+	}
+
+	var kept []string
+	replaced := false
+	for _, line := range strings.Split(content, "\n") {
+		switch {
+		case repoDirectiveRe.MatchString(line):
+			if replaced {
+				continue
+			}
+			replaced = true
+			kept = append(kept, block...)
+		case branchDirectiveRe.MatchString(line):
+		default:
+			kept = append(kept, line)
+		}
+	}
+
+	if !replaced {
+		if strings.TrimSpace(content) != "" {
+			block = append(block, "")
+		}
+		kept = append(block, kept...)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func MatchProjects(projects []Project, query string) []Project {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return nil
+	}
+
+	if strings.Contains(strings.ToLower(query), "linear.app/") {
+		for _, p := range projects {
+			if p.SlugID != "" && strings.Contains(query, p.SlugID) {
+				return []Project{p}
+			}
+			if p.URL != "" && strings.HasPrefix(query, p.URL) {
+				return []Project{p}
+			}
+		}
+		return nil
+	}
+
+	for _, p := range projects {
+		if strings.EqualFold(strings.TrimSpace(p.Name), query) {
+			return []Project{p}
+		}
+	}
+
+	var partial []Project
+	lower := strings.ToLower(query)
+	for _, p := range projects {
+		if strings.Contains(strings.ToLower(p.Name), lower) {
+			partial = append(partial, p)
+		}
+	}
+	return partial
 }
 
 // WorkflowState is a ticket's column (e.g. "Next") and its type ("backlog", "started", "completed", …).

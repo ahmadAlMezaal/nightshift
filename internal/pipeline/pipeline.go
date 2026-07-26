@@ -18,6 +18,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/dashboard"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
+	"github.com/ahmadAlMezaal/noctra/internal/linearclient"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 	"github.com/ahmadAlMezaal/noctra/internal/review"
@@ -95,7 +96,7 @@ func New(cfg *config.Config) *Pipeline {
 		}
 	}
 
-	linearClient := newLinearClient(cfg, store)
+	linearClient := linearclient.New(cfg, store)
 	p := &Pipeline{
 		cfg:      cfg,
 		linear:   linearClient,
@@ -660,36 +661,6 @@ func buildNotifier(cfg *config.Config) *notify.Multi {
 	}
 
 	return notify.NewMulti(backends, labels)
-}
-
-func newLinearClient(cfg *config.Config, store *state.Store) *linear.Client {
-	if cfg.OAuthPartiallyConfigured() {
-		slog.Warn("linear actor=app config incomplete (need both client id and secret); using personal API key")
-	}
-	if cfg.ActorAppConfigured() {
-		var ts linear.TokenStore
-		if store != nil {
-			ts = store
-		}
-		tm := linear.NewTokenManager(linear.TokenManagerConfig{
-			ClientID:     cfg.LinearOAuthClientID,
-			ClientSecret: cfg.LinearOAuthClientSecret,
-			RefreshToken: cfg.LinearOAuthRefreshToken,
-			Scope:        cfg.LinearOAuthScope,
-			Store:        ts,
-		})
-		c := linear.New(cfg.LinearAPIKey)
-		c.TokenFn = tm.Token
-		c.OnAuthError = tm.ForceRefresh
-		c.FallbackAPIKey = cfg.LinearAPIKey
-		return c
-	}
-	if cfg.LinearOAuthToken != "" {
-		c := linear.NewOAuth(cfg.LinearOAuthToken)
-		c.FallbackAPIKey = cfg.LinearAPIKey
-		return c
-	}
-	return linear.New(cfg.LinearAPIKey)
 }
 
 func buildTicketSources(cfg *config.Config, linearClient *linear.Client) []source.TicketSource {

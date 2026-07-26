@@ -26,6 +26,7 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("resume", "Resume new dispatches after /pause", p.handleResume)
 	d.Register("kill", "Kill a running ticket (e.g. /kill ENG-42)", p.handleKill)
 	d.Register("requeue", "Re-queue a ticket with context (e.g. /requeue ENG-42 use Auth0)", p.handleRequeue)
+	d.RegisterConversation("addrepo", "Add a repository, guided: GitHub repo → Linear project → base branch", p.startAddRepo)
 }
 
 func (p *Pipeline) handleStatus(_ context.Context, _ string) string {
