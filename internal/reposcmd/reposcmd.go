@@ -123,7 +123,7 @@ func runAdd(scriptDir string, args []string) error {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: could not open the state DB (%v); a rotated Linear token won't be persisted\n", err)
 	} else {
-		defer store.Close()
+		defer func() { _ = store.Close() }()
 	}
 	projects := linearclient.New(cfg, store)
 
