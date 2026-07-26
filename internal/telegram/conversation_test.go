@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// scriptedConv answers with the next canned prompt, finishing once they run out.
 type scriptedConv struct {
 	prompts []string
 	got     []string
@@ -59,7 +58,6 @@ func TestConversation_RoutesPlainMessagesUntilDone(t *testing.T) {
 		}
 	}
 
-	// Flow finished, so plain text falls through to the unknown-command reply.
 	if reply := d.Dispatch(context.Background(), "stray"); !strings.Contains(reply, "Unknown command") {
 		t.Errorf("after completion = %q, want the unknown-command reply", reply)
 	}

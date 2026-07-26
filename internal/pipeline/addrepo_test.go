@@ -13,7 +13,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/repoadd"
 )
 
-// projectsServer serves one ListProjects page and records any projectUpdate mutation.
 func projectsServer(t *testing.T, projects []linear.Project) (*linear.Client, *[]string) {
 	t.Helper()
 
@@ -43,7 +42,6 @@ func projectsServer(t *testing.T, projects []linear.Project) (*linear.Client, *[
 	return client, &mutations
 }
 
-// newAddRepoFlow builds a flow whose terminal step records the request instead of cloning.
 func newAddRepoFlow(p *Pipeline) (*addRepoFlow, *[]repoadd.Request) {
 	var got []repoadd.Request
 	f := &addRepoFlow{p: p}

@@ -20,7 +20,6 @@ import (
 
 const addTimeout = 15 * time.Minute
 
-// maxProjectAttempts stops an ambiguous project answer looping forever on a non-interactive stdin.
 const maxProjectAttempts = 3
 
 // Run dispatches `noctra repos <subcommand>`.
@@ -53,7 +52,6 @@ func printUsage() {
 	fmt.Println("  list      List the repos Noctra has cloned")
 }
 
-// addOptions are the flags `repos add` accepts; empty fields are prompted for.
 type addOptions struct {
 	Ref     string
 	Project string
@@ -174,7 +172,6 @@ func runAdd(scriptDir string, args []string) error {
 	return addErr
 }
 
-// resolveProject narrows query to one project, re-prompting while the answer is ambiguous.
 func resolveProject(ctx context.Context, projects repoadd.Projects, in *bufio.Scanner, query string) (*linear.Project, error) {
 	for attempt := 0; attempt < maxProjectAttempts; attempt++ {
 		project, ambiguous, err := repoadd.ResolveProject(ctx, projects, query)

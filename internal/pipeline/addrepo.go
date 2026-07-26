@@ -33,7 +33,6 @@ type addRepoFlow struct {
 	ownerRepo string
 	project   *linear.Project
 
-	// run performs the add once the answers are in; a field so tests can stand in for the clone.
 	run func(ctx context.Context, req repoadd.Request)
 }
 
@@ -115,7 +114,6 @@ func (f *addRepoFlow) answerBranch(ctx context.Context, text string) (string, bo
 		notify.EscapeMarkdown(f.ownerRepo)), true
 }
 
-// runDetached clones outside the chat's turn: a slow clone would otherwise stall the listener, which handles updates one at a time.
 func (f *addRepoFlow) runDetached(ctx context.Context, req repoadd.Request) {
 	p := f.p
 	go func() {

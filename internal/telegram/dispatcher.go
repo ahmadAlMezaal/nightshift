@@ -11,7 +11,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
 )
 
-// sessionTTL bounds how long a half-finished flow keeps swallowing plain messages.
 const sessionTTL = 5 * time.Minute
 
 const cancelCommand = "cancel"
@@ -33,7 +32,6 @@ type Dispatcher struct {
 	commands map[string]command
 	pending  *session
 
-	// now is overridable so tests can expire a session without sleeping.
 	now func() time.Time
 }
 
@@ -94,7 +92,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 
 	name, args := splitCommand(text)
 
-	// /cancel cancels inside its own handler so it can tell "cancelled" from "nothing to cancel".
 	interrupted := ""
 	if name != cancelCommand {
 		interrupted = d.cancelPending()
@@ -117,7 +114,6 @@ func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 	return withInterrupted(interrupted, cmd.handler(ctx, args))
 }
 
-// answerPending feeds text to a live flow, reporting whether it consumed the message.
 func (d *Dispatcher) answerPending(ctx context.Context, text string) (string, bool) {
 	d.mu.Lock()
 	s := d.pending
@@ -132,7 +128,6 @@ func (d *Dispatcher) answerPending(ctx context.Context, text string) (string, bo
 	}
 	d.mu.Unlock()
 
-	// Answer may do network I/O, so it runs outside the lock.
 	reply, done := s.conv.Answer(ctx, text)
 
 	d.mu.Lock()
@@ -153,7 +148,6 @@ func (d *Dispatcher) begin(name string, conv Conversation) {
 	d.pending = &session{command: name, conv: conv, expires: d.clock().Add(sessionTTL)}
 }
 
-// cancelPending clears any live flow and returns the command that started it.
 func (d *Dispatcher) cancelPending() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()

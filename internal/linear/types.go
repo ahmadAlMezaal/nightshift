@@ -9,7 +9,6 @@ import (
 
 // Project is a ticket's Linear project; a "Repo:" directive in its content/description routes the repo.
 type Project struct {
-	// ID is only fetched by ListProjects; issue queries leave it empty.
 	ID   string `json:"id,omitempty"`
 	Name string `json:"name"`
 	// Description is Linear's short project description (GraphQL `description`).
@@ -69,7 +68,7 @@ func UpsertRepoDirective(content, ref, branch string) string {
 			}
 			replaced = true
 			kept = append(kept, block...)
-		case branchDirectiveRe.MatchString(line): // re-emitted with the Repo line
+		case branchDirectiveRe.MatchString(line):
 		default:
 			kept = append(kept, line)
 		}
