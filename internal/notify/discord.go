@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -39,14 +40,16 @@ func NewDiscord(webhookURL string) *Discord {
 	}
 }
 
-// Send posts in a background goroutine and returns immediately; errors are swallowed (best-effort).
+// Send posts in a background goroutine and returns immediately; a failure is logged, never returned (best-effort).
 func (d *Discord) Send(ctx context.Context, message string) {
 	if d == nil || !d.Enabled {
 		return
 	}
 	go func() {
 		// Detach from ctx — the caller may cancel it before the round-trip completes.
-		_ = d.post(context.Background(), message)
+		if err := d.post(context.Background(), message); err != nil {
+			slog.Warn("notify: discord send failed", "err", err)
+		}
 	}()
 }
 

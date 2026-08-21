@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -27,14 +28,16 @@ func NewSlack(webhookURL string) *Slack {
 	}
 }
 
-// Send posts in a background goroutine and returns immediately; errors are swallowed (best-effort).
+// Send posts in a background goroutine and returns immediately; a failure is logged, never returned (best-effort).
 func (s *Slack) Send(ctx context.Context, message string) {
 	if s == nil || !s.Enabled {
 		return
 	}
 	go func() {
 		// Detach from ctx — the caller may cancel it before the round-trip completes.
-		_ = s.post(context.Background(), message)
+		if err := s.post(context.Background(), message); err != nil {
+			slog.Warn("notify: slack send failed", "err", err)
+		}
 	}()
 }
 

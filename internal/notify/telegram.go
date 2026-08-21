@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,14 +30,16 @@ func New(enabled bool, botToken, chatID string) *Telegram {
 	}
 }
 
-// Send posts a Markdown message in a background goroutine and returns immediately; errors are swallowed (best-effort).
+// Send posts a Markdown message in a background goroutine and returns immediately; a failure is logged, never returned (best-effort).
 func (t *Telegram) Send(ctx context.Context, message string) {
 	if t == nil || !t.Enabled {
 		return
 	}
 	go func() {
 		// Detach from ctx — the caller may cancel it before the round-trip completes.
-		_ = t.post(context.Background(), message)
+		if err := t.post(context.Background(), message); err != nil {
+			slog.Warn("notify: telegram send failed", "err", err)
+		}
 	}()
 }
 
