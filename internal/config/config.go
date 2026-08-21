@@ -90,10 +90,13 @@ const (
 	DefaultRateLimitCooldown = 30 * time.Minute
 
 	// Sweep — autonomous maintenance (ENG-222) — disabled by default.
-	DefaultSweepInterval  = 24 * time.Hour
-	DefaultSweepMaxTasks  = 5
-	DefaultSweepTimeout   = 20 * time.Minute
-	DefaultSweepMaxTokens = 8_000_000
+	DefaultSweepInterval = 24 * time.Hour
+	DefaultSweepMaxTasks = 5
+	DefaultSweepTimeout  = 20 * time.Minute
+	// Maintenance work that needs more than this is mis-scoped, not close to finishing: a productive
+	// sweep lands around 0.6M tokens, while a runaway bug-scan burned the old 8M ceiling in 4.5min
+	// (~$12) and shipped nothing. Raise deliberately via AGENT_MAX_TOKENS.
+	DefaultSweepMaxTokens = 2_000_000
 
 	// Jira defaults.
 	DefaultJiraInReviewStatus = "In Review"

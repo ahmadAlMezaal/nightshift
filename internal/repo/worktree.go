@@ -7,7 +7,21 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 )
+
+// repoLocks serializes worktree mutations per clone. Every function below drives `git worktree add/remove`
+// and `git branch -D` against the SHARED clone, all of which take the same `.git/config` lock — two
+// concurrent sweep tasks on one repo made the loser fail with "could not lock config file .git/config".
+var repoLocks sync.Map
+
+// lockRepo blocks until this clone is free and returns its unlock func.
+func lockRepo(repoPath string) func() {
+	v, _ := repoLocks.LoadOrStore(filepath.Clean(repoPath), &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
 
 // BranchName returns the branch Noctra creates for a ticket (e.g. "noctra/eng-42").
 func BranchName(identifier string) string {
@@ -25,6 +39,8 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
 
+	defer lockRepo(repoPath)()
+
 	// Remove the worktree BEFORE the branch — git won't delete a branch still checked out in a worktree, which would leave it behind and fail `worktree add -b`.
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
@@ -40,6 +56,8 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Worktree, error) {
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
+
+	defer lockRepo(repoPath)()
 
 	if err := runIn(ctx, repoPath, "git", "fetch", "origin", branch, "--quiet"); err != nil {
 		return Worktree{}, fmt.Errorf("git fetch origin %s: %w", branch, err)
@@ -59,6 +77,8 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, mainBranch, branch string) (Worktree, error) {
 	wt := filepath.Join(base, identifier)
 
+	defer lockRepo(repoPath)()
+
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
@@ -75,6 +95,9 @@ func CleanupWorktree(ctx context.Context, repoPath, base, identifier string) {
 		return
 	}
 	wt := filepath.Join(base, identifier)
+
+	defer lockRepo(repoPath)()
+
 	if err := runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt); err != nil {
 		_ = os.RemoveAll(wt)
 	}

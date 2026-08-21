@@ -2,10 +2,14 @@ package repo
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
+	"time"
 )
 
 // TestCreateAndCleanupWorktree drives real git against a temp repo.
@@ -233,5 +237,107 @@ func TestResumeWorktree_FailsIfBranchNotOnRemote(t *testing.T) {
 
 	if _, err := ResumeWorktree(context.Background(), t.TempDir(), "ENG-NEVER-PUSHED", repo); err == nil {
 		t.Fatal("expected ResumeWorktree to fail when the branch isn't on origin")
+	}
+}
+
+// newFixtureRepo builds a throwaway clone with one commit on main and an origin remote pointing at itself.
+func newFixtureRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	mustGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, string(out))
+		}
+	}
+	mustGit("init", "-b", "main", "--quiet")
+	mustGit("config", "user.email", "t@t")
+	mustGit("config", "user.name", "T")
+	mustGit("config", "commit.gpgsign", "false")
+	mustGit("remote", "add", "origin", dir)
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("init"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mustGit("add", "-A")
+	mustGit("commit", "-m", "init", "--quiet")
+	mustGit("fetch", "origin", "--quiet")
+	return dir
+}
+
+// TestCreateWorktreeWithBranch_ConcurrentSameRepo is the regression test for two sweep tasks landing on
+// one repo in a single cycle: both drive `git worktree add` against the shared clone, and without the
+// per-repo lock the loser dies on "could not lock config file .git/config".
+func TestCreateWorktreeWithBranch_ConcurrentSameRepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := newFixtureRepo(t)
+	base := t.TempDir()
+	ctx := context.Background()
+
+	const n = 8
+	errs := make(chan error, n)
+	var start sync.WaitGroup
+	start.Add(1)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			start.Wait() // release all goroutines at once to maximise contention
+			id := fmt.Sprintf("SWEEP-FIXTURE-TASK-%d", i)
+			_, err := CreateWorktreeWithBranch(ctx, base, id, repoDir, "main", "noctra/sweep-task-"+strconv.Itoa(i))
+			errs <- err
+		}(i)
+	}
+	start.Done()
+
+	for i := 0; i < n; i++ {
+		if err := <-errs; err != nil {
+			t.Fatalf("concurrent CreateWorktreeWithBranch failed: %v", err)
+		}
+	}
+}
+
+// TestLockRepo_DistinctReposDoNotBlock guards the lock's granularity: it must be per clone, not global,
+// or sweeps across different repos would serialize needlessly.
+func TestLockRepo_DistinctReposDoNotBlock(t *testing.T) {
+	unlockA := lockRepo("/repos/a")
+	defer unlockA()
+
+	done := make(chan struct{})
+	go func() {
+		lockRepo("/repos/b")()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("lockRepo serialized two distinct repos")
+	}
+}
+
+// TestLockRepo_SamePathSerializes confirms differing spellings of one path share a lock.
+func TestLockRepo_SamePathSerializes(t *testing.T) {
+	unlock := lockRepo("/repos/a")
+
+	acquired := make(chan struct{})
+	go func() {
+		lockRepo("/repos/a/../a")() // same clone, different spelling
+		close(acquired)
+	}()
+
+	select {
+	case <-acquired:
+		t.Fatal("lockRepo let two holders into the same repo")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	unlock()
+	select {
+	case <-acquired:
+	case <-time.After(5 * time.Second):
+		t.Fatal("lockRepo did not release")
 	}
 }
