@@ -3,6 +3,7 @@ package repo
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -87,6 +88,33 @@ func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, m
 		return Worktree{}, fmt.Errorf("git worktree add %s: %w", wt, err)
 	}
 	return Worktree{Path: wt, Branch: branch}, nil
+}
+
+// RemoteBranchExists reports whether origin already has this branch. Network read only; it takes no
+// repo lock because `git ls-remote` touches neither .git/config nor the worktree admin area.
+func RemoteBranchExists(ctx context.Context, repoPath, branch string) bool {
+	return runIn(ctx, repoPath, "git", "ls-remote", "--exit-code", "--heads", "origin", branch) == nil
+}
+
+// CreateOrResumeWorktree resumes an identifier's branch when origin already has it, and creates a fresh
+// one off main otherwise; resumed reports which path was taken.
+//
+// A run that pushed its branch but died before opening a PR (a restart mid-run does this) leaves an
+// orphaned remote branch. CreateWorktree always branches from origin/<main>, so every later attempt
+// produced a non-descendant that origin rejected as non-fast-forward — the ticket could never land
+// again, burning a full agent run per retry. Resuming continues that branch instead.
+func CreateOrResumeWorktree(ctx context.Context, base, identifier, repoPath, mainBranch string) (wt Worktree, resumed bool, err error) {
+	if RemoteBranchExists(ctx, repoPath, BranchName(identifier)) {
+		wt, err = ResumeWorktree(ctx, base, identifier, repoPath)
+		if err == nil {
+			return wt, true, nil
+		}
+		// Fall through: a branch we can see but cannot resume is worse than a fresh start.
+		slog.Warn("repo: could not resume existing remote branch, starting fresh",
+			"identifier", identifier, "branch", BranchName(identifier), "err", err)
+	}
+	wt, err = CreateWorktree(ctx, base, identifier, repoPath, mainBranch)
+	return wt, false, err
 }
 
 // CleanupWorktree removes an identifier's worktree via git (clears the admin entry too), falling back to rm -rf.
