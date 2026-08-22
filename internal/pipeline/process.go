@@ -714,6 +714,27 @@ func branchAhead(ctx context.Context, workdir, upstream string) (bool, error) {
 	return n != "" && n != "0", nil
 }
 
+func gitDiffStat(ctx context.Context, workdir, upstream string) string {
+	cmd := exec.CommandContext(ctx, "git", "diff", "--stat", upstream)
+	cmd.Dir = workdir
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return truncateDiffStat(string(out))
+}
+
+func truncateDiffStat(s string) string {
+	const maxLines = 40
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) <= maxLines {
+		return strings.TrimSpace(s)
+	}
+	kept := lines[:maxLines]
+	return strings.TrimSpace(strings.Join(kept, "\n")) +
+		fmt.Sprintf("\n… and %d more changed file(s)", len(lines)-maxLines)
+}
+
 func gitDiff(ctx context.Context, workdir string) string {
 	cmd := exec.CommandContext(ctx, "git", "diff", "--cached")
 	cmd.Dir = workdir
@@ -786,12 +807,24 @@ func classifyAgentRun(b agent.Backend, runErr error, output string) agentRunStat
 }
 
 func ghCreatePR(ctx context.Context, repoPath, title, body, base, head string) (string, error) {
-	cmd := exec.CommandContext(ctx, "gh", "pr", "create",
+	return ghPRCreate(ctx, repoPath, title, body, base, head, false)
+}
+
+func ghCreateDraftPR(ctx context.Context, repoPath, title, body, base, head string) (string, error) {
+	return ghPRCreate(ctx, repoPath, title, body, base, head, true)
+}
+
+func ghPRCreate(ctx context.Context, repoPath, title, body, base, head string, draft bool) (string, error) {
+	args := []string{"pr", "create",
 		"--title", title,
 		"--body", body,
 		"--base", base,
 		"--head", head,
-	)
+	}
+	if draft {
+		args = append(args, "--draft")
+	}
+	cmd := exec.CommandContext(ctx, "gh", args...)
 	cmd.Dir = repoPath
 	out, err := cmd.CombinedOutput()
 	if err != nil {
