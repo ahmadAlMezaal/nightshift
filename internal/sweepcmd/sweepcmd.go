@@ -1,7 +1,3 @@
-// Package sweepcmd implements `noctra sweep`, the CLI channel for triggering a maintenance sweep
-// out-of-band. The sweep loop lives inside the running `noctra run` daemon, so this is a thin client
-// over the dashboard's admin API rather than a second sweeper — two processes planning sweeps against
-// one state DB would double-dispatch and race on cooldowns.
 package sweepcmd
 
 import (
@@ -41,12 +37,10 @@ func Run(scriptDir string, args []string) error {
 	return post(cfg, body)
 }
 
-// parseArgs is pure so the flag surface is unit-testable without a config file or a live daemon.
 func parseArgs(args []string) (body request, help bool, err error) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--now":
-			// Accepted and ignored: triggering now is the only thing this command does.
 		case "--force", "-f":
 			body.Force = true
 		case "--task", "-t":

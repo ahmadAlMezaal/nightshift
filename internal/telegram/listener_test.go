@@ -23,7 +23,7 @@ func TestListener_AuthRejectsWrongChat(t *testing.T) {
 		UpdateID: 1,
 		Message: &Message{
 			Text: "/test",
-			Chat: Chat{ID: 99999}, // wrong chat ID
+			Chat: Chat{ID: 99999},
 			From: &User{Username: "attacker"},
 		},
 	}
@@ -109,7 +109,6 @@ func TestListener_IgnoresEmptyText(t *testing.T) {
 
 func TestListener_IgnoresNilMessage(t *testing.T) {
 	l := New("tok", "12345")
-	// Should not panic.
 	l.handleUpdate(context.Background(), Update{UpdateID: 1, Message: nil})
 }
 
@@ -192,7 +191,6 @@ func TestListener_RunProcessesAndStops(t *testing.T) {
 				}},
 			}
 		} else {
-			// First update processed; cancel to stop the loop promptly.
 			cancel()
 		}
 
@@ -224,8 +222,8 @@ func TestNextBackoff(t *testing.T) {
 		{time.Second, 2 * time.Second},
 		{2 * time.Second, 4 * time.Second},
 		{30 * time.Second, 60 * time.Second},
-		{60 * time.Second, 60 * time.Second},  // cap
-		{120 * time.Second, 60 * time.Second}, // over cap
+		{60 * time.Second, 60 * time.Second},
+		{120 * time.Second, 60 * time.Second},
 	}
 	for _, c := range cases {
 		got := nextBackoff(c.in)

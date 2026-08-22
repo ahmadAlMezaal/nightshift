@@ -1,4 +1,3 @@
-// Package state persists Noctra's PR cursors (comment/review/CI + iteration count) so a restart doesn't re-react to pre-cursor feedback, plus sweep task cooldowns (ENG-222). SQLite-backed; a legacy JSON file migrates once via OpenMigrating.
 package state
 
 import (
@@ -17,78 +16,57 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// PRState is the per-PR record stored in the state database.
 type PRState struct {
-	// TicketID is the Linear identifier (e.g. ENG-42), used to route Linear comments on re-engage/cap.
 	TicketID string `json:"ticket_id,omitempty"`
 
-	// AgentBackend is the backend the PR was created with, so follow-up commits reuse it.
 	AgentBackend string `json:"agent_backend,omitempty"`
 
-	// LastCommentAt is the createdAt of the last processed conversation comment; later = new. By timestamp not ID since gh returns unordered GraphQL node IDs.
 	LastCommentAt time.Time `json:"last_comment_at,omitempty"`
 
-	// LastReviewAt is the submittedAt of the last processed review.
 	LastReviewAt time.Time `json:"last_review_at,omitempty"`
 
-	// LastCISHA is the head SHA whose failing CI was acted on. Keyed by SHA so each commit acts once; a fix changes the SHA, re-eligible (bounded by Iterations).
 	LastCISHA string `json:"last_ci_sha,omitempty"`
 
-	// Iterations counts re-engagements, capped by config.MaxPRIterations.
 	Iterations int `json:"iterations,omitempty"`
 
-	// LastIteratedAt is the most recent re-engage time (telemetry; spots stuck loops).
 	LastIteratedAt time.Time `json:"last_iterated_at,omitempty"`
 
-	// LastPushedSHA is the SHA Noctra last pushed to this PR's branch.
 	LastPushedSHA string `json:"last_pushed_sha,omitempty"`
 
-	// MergedProcessed reports whether human post-merge edits for this PR have been processed.
 	MergedProcessed bool `json:"merged_processed,omitempty"`
 
-	// LastReasoning is the last re-engagement's agent summary, reused in the next fix prompt and thread reply.
 	LastReasoning string `json:"last_reasoning,omitempty"`
 
-	// LastCIRunURL is the last failing CI check-run URL, deep-linked from the dashboard.
 	LastCIRunURL string `json:"last_ci_run_url,omitempty"`
 }
 
-// SweepState is the per-task-per-repo sweep cooldown record (ENG-222), keyed "repo-slug/task-name".
 type SweepState struct {
-	// LastRunAt is when this task last ran on this repo.
 	LastRunAt time.Time `json:"last_run_at,omitempty"`
 }
 
-// PlanState tracks a planned-but-unapproved ticket (ENG-221), keyed by ticket identifier.
 type PlanState struct {
-	// Source is the ticket source; empty means "linear" (pre-multi-source records).
-	Source string `json:"source,omitempty"`
-	// IssueID is the source issue ID (for approval-comment fetching).
-	IssueID string `json:"issue_id"`
-	// Plan is the agent's implementation plan.
-	Plan string `json:"plan"`
-	// PlannedAt is when the plan was posted.
+	Source    string    `json:"source,omitempty"`
+	IssueID   string    `json:"issue_id"`
+	Plan      string    `json:"plan"`
 	PlannedAt time.Time `json:"planned_at"`
 }
 
-// RunHistory records one run's outcome (ticket/sweep/iterate), written at its terminal point so the dashboard survives restarts.
 type RunHistory struct {
 	Identifier   string
 	TicketID     string
 	PRURL        string
 	Repo         string
 	AgentBackend string
-	RunType      string // "ticket" | "sweep" | "iterate"
+	RunType      string
 	StartedAt    time.Time
 	FinishedAt   time.Time
-	Status       string // "pr_opened" | "blocked" | "failed" | "no_change"
+	Status       string
 	Iterations   int
 }
 
-// UsageEvent records one agent invocation's token consumption, written beside every budget.Record so cost survives restarts.
 type UsageEvent struct {
 	OccurredAt   time.Time
-	Source       string // "ticket" | "iterate" | "sweep" | "plan"
+	Source       string
 	TicketID     string
 	PRURL        string
 	AgentBackend string
@@ -98,7 +76,6 @@ type UsageEvent struct {
 	CostUSD      float64
 }
 
-// OAuthState persists the rotating Linear actor=app OAuth credentials (ENG-236) so a restart keeps a refresh-token rotation.
 type OAuthState struct {
 	AccessToken  string    `json:"access_token,omitempty"`
 	ExpiresAt    time.Time `json:"expires_at,omitempty"`
@@ -111,14 +88,12 @@ type fileFormat struct {
 	OAuth  *OAuthState            `json:"oauth,omitempty"`
 }
 
-// Store is a thread-safe, SQLite-backed PR, sweep, and OAuth state store.
 type Store struct {
 	mu   sync.Mutex
 	path string
 	db   *sql.DB
 }
 
-// Open opens the SQLite state database at path, creating it with the current schema if missing.
 func Open(path string) (*Store, error) {
 	s, err := openSQLite(path)
 	if err != nil {
@@ -127,7 +102,6 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
-// OpenMigrating opens the DB at dbPath, migrating from legacyJSONPath only when the DB was newly created; existing DBs are never clobbered.
 func OpenMigrating(dbPath, legacyJSONPath string) (*Store, error) {
 	dbExisted := pathExists(dbPath)
 	s, err := openSQLite(dbPath)
@@ -163,7 +137,6 @@ func openSQLite(path string) (*Store, error) {
 	return s, nil
 }
 
-// Close closes the underlying SQLite connection.
 func (s *Store) Close() error {
 	return s.db.Close()
 }
@@ -252,7 +225,6 @@ func (s *Store) initSchema() error {
 	return nil
 }
 
-// Get returns a copy of prURL's record, or a zero-value PRState if untracked.
 func (s *Store) Get(prURL string) PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -300,7 +272,6 @@ func (s *Store) getPRLocked(prURL string) (PRState, error) {
 	return r, nil
 }
 
-// All returns a copy of every tracked PR keyed by URL.
 func (s *Store) All() map[string]PRState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -363,7 +334,6 @@ func (s *Store) allLocked() (map[string]PRState, error) {
 	return out, nil
 }
 
-// Update mutates prURL's record via fn and writes it (nil fn is a no-op). fn runs under the lock — don't call back into the Store from it.
 func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	if fn == nil {
 		return nil
@@ -409,7 +379,6 @@ func (s *Store) Update(prURL string, fn func(*PRState)) error {
 	return nil
 }
 
-// LoadOAuth returns the persisted access token, expiry, and refresh token (zero if none). Satisfies linear.TokenStore.
 func (s *Store) LoadOAuth() (access string, expiresAt time.Time, refresh string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -430,7 +399,6 @@ func (s *Store) LoadOAuth() (access string, expiresAt time.Time, refresh string)
 	return access, expiresAt, refresh
 }
 
-// SaveOAuth persists the credentials atomically. Satisfies linear.TokenStore.
 func (s *Store) SaveOAuth(access string, expiresAt time.Time, refresh string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -450,12 +418,10 @@ func (s *Store) SaveOAuth(access string, expiresAt time.Time, refresh string) er
 	return nil
 }
 
-// SweepKey builds a sweep task's state key, "<repo-slug>/<task-name>".
 func SweepKey(repoSlug, taskName string) string {
 	return repoSlug + "/" + taskName
 }
 
-// GetSweep returns a copy of key's sweep state, or a zero-value SweepState if the task hasn't run.
 func (s *Store) GetSweep(key string) SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -483,7 +449,6 @@ func (s *Store) getSweepLocked(key string) (SweepState, error) {
 	return SweepState{LastRunAt: lastRunAt}, nil
 }
 
-// UpdateSweep mutates the sweep state for the given key and writes it.
 func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 	if fn == nil {
 		return nil
@@ -507,7 +472,6 @@ func (s *Store) UpdateSweep(key string, fn func(*SweepState)) error {
 	return nil
 }
 
-// GetPlan returns a ticket's plan state, or a zero-value PlanState if none recorded (ENG-221).
 func (s *Store) GetPlan(identifier string) PlanState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -528,7 +492,6 @@ func (s *Store) GetPlan(identifier string) PlanState {
 	return r
 }
 
-// SavePlan persists a plan awaiting human approval. (ENG-221)
 func (s *Store) SavePlan(identifier string, ps PlanState) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -554,7 +517,6 @@ func (s *Store) SavePlan(identifier string, ps PlanState) error {
 	return nil
 }
 
-// DeletePlan removes a plan record after approval or rejection. (ENG-221)
 func (s *Store) DeletePlan(identifier string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -565,7 +527,6 @@ func (s *Store) DeletePlan(identifier string) error {
 	return nil
 }
 
-// AllPlans returns every pending plan keyed by identifier. (ENG-221)
 func (s *Store) AllPlans() map[string]PlanState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -600,8 +561,6 @@ func (s *Store) AllPlans() map[string]PlanState {
 	return out
 }
 
-// InsertRunHistory persists a run-history record. Best-effort: a failed
-// insert is logged and never blocks the run.
 func (s *Store) InsertRunHistory(rec RunHistory) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -626,7 +585,6 @@ func (s *Store) InsertRunHistory(rec RunHistory) error {
 	return nil
 }
 
-// ListRunHistory returns the most recent n run-history records, newest first.
 func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -665,7 +623,6 @@ func (s *Store) ListRunHistory(limit int) ([]RunHistory, error) {
 	return out, nil
 }
 
-// ListUsageEvents returns usage events at or after since (all if zero), oldest first.
 func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -712,7 +669,6 @@ func (s *Store) ListUsageEvents(since time.Time) ([]UsageEvent, error) {
 	return out, nil
 }
 
-// AllSweepStates returns every sweep state keyed "<repo-slug>/<task-name>".
 func (s *Store) AllSweepStates() map[string]SweepState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -748,8 +704,6 @@ func (s *Store) AllSweepStates() map[string]SweepState {
 	return out
 }
 
-// RecordUsage persists a usage-event row. Best-effort: a failed insert is
-// logged and never blocks the run.
 func (s *Store) RecordUsage(ev UsageEvent) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -874,7 +828,6 @@ func removeNewStateDB(path string) {
 	}
 }
 
-// GetLessons returns the lessons for a repository, or empty string if none exist.
 func (s *Store) GetLessons(repo string) (string, error) {
 	if s == nil {
 		return "", nil
@@ -892,7 +845,6 @@ func (s *Store) GetLessons(repo string) (string, error) {
 	return lessons, nil
 }
 
-// SaveLessons persists lessons for a repository.
 func (s *Store) SaveLessons(repo string, lessons string) error {
 	if s == nil {
 		return nil

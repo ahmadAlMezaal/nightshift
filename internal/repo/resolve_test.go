@@ -11,7 +11,6 @@ import (
 	"testing"
 )
 
-// TestEnsureCloned_ConcurrentProducesCompleteRepo: two concurrent clones of one dest yield a complete repo (origin/main resolvable) — nobody sees it mid-clone. Cold-clone race regression (ENG-180).
 func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -25,7 +24,6 @@ func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 		}
 	}
 
-	// Source repo with a commit on main.
 	src := t.TempDir()
 	git(src, "init", "-b", "main", "--quiet")
 	git(src, "config", "user.email", "t@t")
@@ -56,20 +54,17 @@ func TestEnsureCloned_ConcurrentProducesCompleteRepo(t *testing.T) {
 	if !isGitRepo(dest) {
 		t.Fatal("dest is not a git repo after clone")
 	}
-	// Clone must be complete: origin/main resolves (a mid-clone repo would fail here — the bug).
 	rp := exec.Command("git", "rev-parse", "--verify", "origin/main")
 	rp.Dir = dest
 	if out, err := rp.CombinedOutput(); err != nil {
 		t.Fatalf("origin/main not resolvable in cloned repo: %v\n%s", err, out)
 	}
-	// No leftover temp clone dirs beside dest.
 	entries, _ := filepath.Glob(dest + ".cloning-*")
 	if len(entries) != 0 {
 		t.Errorf("leftover temp clone dirs: %v", entries)
 	}
 }
 
-// fakeGitRepo makes a dir with a .git/ subdir so isGitRepo reports true without shelling out.
 func fakeGitRepo(t *testing.T) string {
 	t.Helper()
 	d := t.TempDir()
@@ -121,7 +116,6 @@ func TestResolve_NoDirectiveReturnsNonTransient(t *testing.T) {
 		MainBranch: "main",
 	}
 
-	// Project with no directive, no fallback → NonTransientError.
 	_, err := r.Resolve(context.Background(), "Missing Project")
 	if err == nil {
 		t.Fatal("expected error for project without a directive")
@@ -134,7 +128,6 @@ func TestResolve_NoDirectiveReturnsNonTransient(t *testing.T) {
 		t.Errorf("unexpected message: %q", nte.Error())
 	}
 
-	// Empty project, no fallback → NonTransientError.
 	_, err = r.Resolve(context.Background(), "")
 	if err == nil {
 		t.Fatal("expected error for empty project")
@@ -155,7 +148,6 @@ func TestResolve_FallbackToRepoPathIsNotNonTransient(t *testing.T) {
 		MainBranch: "main",
 	}
 
-	// Project without a directive but WITH a valid fallback → success.
 	res, err := r.Resolve(context.Background(), "Project Without Directive")
 	if err != nil {
 		t.Fatalf("expected success with fallback, got %v", err)
@@ -168,7 +160,6 @@ func TestResolve_FallbackToRepoPathIsNotNonTransient(t *testing.T) {
 func TestAllRepoPaths_ScansReposBaseAndFilters(t *testing.T) {
 	base := t.TempDir()
 
-	// A cloned repo under ReposBase, plus a non-git dir that must be skipped.
 	cloned := filepath.Join(base, "owner-web-app")
 	if err := os.MkdirAll(filepath.Join(cloned, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -194,7 +185,6 @@ func TestAllRepoPaths_ScansReposBaseAndFilters(t *testing.T) {
 
 func TestResolveDirect_AlreadyClonedUsesExplicitBranch(t *testing.T) {
 	base := t.TempDir()
-	// Pre-create the slug dir as a "clone" so ResolveDirect skips the network.
 	dest := filepath.Join(base, Slug("owner/site-repo"))
 	if err := os.MkdirAll(filepath.Join(dest, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -221,7 +211,6 @@ func TestResolveDirect_NoBranchFallsBackToMainBranch(t *testing.T) {
 	}
 	r := &Resolver{ReposBase: base, MainBranch: "main"}
 
-	// No branch given and the fake repo has no origin/HEAD → fall back.
 	res, err := r.ResolveDirect(context.Background(), "owner/site-repo", "")
 	if err != nil {
 		t.Fatalf("ResolveDirect: %v", err)

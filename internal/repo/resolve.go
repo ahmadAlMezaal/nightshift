@@ -15,7 +15,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 )
 
-// NonTransientError signals a deterministic failure needing human intervention (e.g. no "Repo:" directive and no REPO_PATH fallback); the pipeline skips such tickets on future polls instead of retrying every cycle.
 type NonTransientError struct {
 	Err error
 }
@@ -23,20 +22,17 @@ type NonTransientError struct {
 func (e *NonTransientError) Error() string { return e.Err.Error() }
 func (e *NonTransientError) Unwrap() error { return e.Err }
 
-// Resolved is the local repo path and base branch a ticket is implemented against.
 type Resolved struct {
 	Path       string
 	MainBranch string
 }
 
-// Resolver clones a ticket's repo on demand into ReposBase; routed per-ticket via each project's "Repo:" directive (ResolveDirect), with RepoPath as an optional single-repo fallback (Resolve).
 type Resolver struct {
 	ReposBase  string
-	RepoPath   string // optional single-repo fallback
-	MainBranch string // default main branch
+	RepoPath   string
+	MainBranch string
 }
 
-// FromConfig builds a Resolver from a config.Config.
 func FromConfig(cfg *config.Config) *Resolver {
 	return &Resolver{
 		ReposBase:  cfg.ReposBase,
@@ -45,7 +41,6 @@ func FromConfig(cfg *config.Config) *Resolver {
 	}
 }
 
-// Resolve is the fallback for tickets with no "Repo:" directive: the REPO_PATH single-repo fallback when set, else a NonTransientError. The directive route is ResolveDirect.
 func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) {
 	if r.RepoPath != "" && isGitRepo(r.RepoPath) {
 		return Resolved{Path: r.RepoPath, MainBranch: r.MainBranch}, nil
@@ -60,7 +55,6 @@ func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) 
 		project)}
 }
 
-// ResolveDirect locates (cloning on demand) an explicitly named repo from a "Repo:" directive or a PR's own repo. ref is an "owner/name" shorthand (GitHub) or full https/ssh URL; empty branch uses the repo's default branch (read after clone), falling back to MainBranch.
 func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resolved, error) {
 	ownerRepo, err := github.ExtractOwnerRepo(ref)
 	if err != nil {
@@ -94,7 +88,6 @@ func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resol
 	return Resolved{Path: dest, MainBranch: branch}, nil
 }
 
-// defaultBranch reads the repo's default branch from origin/HEAD, falling back when undetermined.
 func defaultBranch(ctx context.Context, dir, fallback string) string {
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 	out, err := cmd.Output()
@@ -108,7 +101,6 @@ func defaultBranch(ctx context.Context, dir, fallback string) string {
 	return ref
 }
 
-// checkRemoteAccess verifies the host can reach the remote via `git ls-remote` — fast, failing clearly before a long clone.
 func checkRemoteAccess(ctx context.Context, url string) error {
 	cmd := exec.CommandContext(ctx, "git", "ls-remote", "--exit-code", url, "HEAD")
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -117,7 +109,6 @@ func checkRemoteAccess(ctx context.Context, url string) error {
 	return nil
 }
 
-// ensureCloned clones url into dest unless already a git repo; an mkdir lock at <dest>.clone-lock serializes concurrent attempts (mkdir is atomic on POSIX).
 func ensureCloned(ctx context.Context, url, dest string) error {
 	const (
 		pollInterval = 2 * time.Second
@@ -138,7 +129,6 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 		if !errors.Is(err, os.ErrExist) {
 			return fmt.Errorf("acquire clone lock: %w", err)
 		}
-		// Lock held by another caller — inherit its result or time out.
 		if isGitRepo(dest) {
 			return nil
 		}
@@ -154,17 +144,15 @@ func ensureCloned(ctx context.Context, url, dest string) error {
 	}
 	defer os.Remove(lock)
 
-	// Re-check: another caller may have finished just before we got the lock.
 	if isGitRepo(dest) {
 		return nil
 	}
 
-	// Clone into a temp dir then atomically rename in. `git clone` creates dest/.git before fetching objects/refs, so cloning straight into dest would make isGitRepo(dest) true mid-clone — a concurrent reader would use a partial repo whose origin/<main> doesn't exist yet. The rename (temp beside dest, like state.writeAtomic) exposes dest only when complete.
 	tmp, err := os.MkdirTemp(filepath.Dir(dest), filepath.Base(dest)+".cloning-*")
 	if err != nil {
 		return fmt.Errorf("create clone temp dir: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmp) }() // no-op once renamed; cleans up on failure
+	defer func() { _ = os.RemoveAll(tmp) }()
 
 	cmd := exec.CommandContext(ctx, "git", "clone", url, tmp)
 	if out, err := cmd.CombinedOutput(); err != nil {
@@ -181,17 +169,14 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// SlugFromPath returns the directory-name slug of a local repo path (e.g. ".../my-repo" → "my-repo").
 func SlugFromPath(repoPath string) string {
 	return filepath.Base(repoPath)
 }
 
-// DefaultBranchOf reads a local clone's default branch from origin/HEAD, falling back to "main".
 func DefaultBranchOf(ctx context.Context, repoPath string) string {
 	return defaultBranch(ctx, repoPath, "main")
 }
 
-// AllRepoPaths returns every local repo Noctra knows: on-demand clones under ReposBase plus the REPO_PATH fallback. Directive-only routing has no registry, so repos are discovered by scanning ReposBase.
 func (r *Resolver) AllRepoPaths() []string {
 	seen := map[string]bool{}
 	var out []string
@@ -215,7 +200,6 @@ func (r *Resolver) AllRepoPaths() []string {
 	return out
 }
 
-// OriginRemoteOf returns a clone's `origin` URL, or "" if it can't be read.
 func OriginRemoteOf(ctx context.Context, repoPath string) string {
 	out, err := exec.CommandContext(ctx, "git", "-C", repoPath, "remote", "get-url", "origin").Output()
 	if err != nil {
@@ -224,7 +208,6 @@ func OriginRemoteOf(ctx context.Context, repoPath string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// AllRepoRemotes returns the `origin` URL of every AllRepoPaths repo, so the PR watcher knows which repos to scan (derived from on-disk clones, since routing is registry-free). Reads run concurrently under ctx — a hung `git` mustn't block the poll loop or outlive its timeout; fixed indices keep order stable without a lock.
 func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
 	paths := r.AllRepoPaths()
 	if len(paths) == 0 {
@@ -242,7 +225,7 @@ func (r *Resolver) AllRepoRemotes(ctx context.Context) []string {
 	}
 	wg.Wait()
 
-	filtered := urls[:0] // reuse backing array — order preserved, empties dropped
+	filtered := urls[:0]
 	for _, u := range urls {
 		if u != "" {
 			filtered = append(filtered, u)

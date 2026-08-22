@@ -11,7 +11,6 @@ import (
 )
 
 func TestTailString_KeepsValidUTF8(t *testing.T) {
-	// 3-byte runes (★ = e2 98 85) so a raw byte cut lands mid-rune for most max values.
 	s := strings.Repeat("★", 100)
 	for _, max := range []int{10, 50, 101, 299} {
 		out := tailString(s, max)
@@ -19,7 +18,6 @@ func TestTailString_KeepsValidUTF8(t *testing.T) {
 			t.Errorf("tailString(max=%d) produced invalid UTF-8: %q", max, out)
 		}
 	}
-	// Short input is returned untouched.
 	if got := tailString("hi", 100); got != "hi" {
 		t.Errorf("short input: got %q", got)
 	}
@@ -54,7 +52,6 @@ JSON
 	if err != nil {
 		t.Fatalf("ListNoctraPRs: %v", err)
 	}
-	// Expect #1/#4 (legacy footers), #5 (hidden marker); skip #2 (no marker), #3 (non-noctra branch).
 	var nums []int
 	for _, pr := range got {
 		nums = append(nums, pr.Number)
@@ -93,9 +90,7 @@ func TestIsNoctraAuthoredBody(t *testing.T) {
 }
 
 func TestDecodeReviewComments(t *testing.T) {
-	// Single merged array (modern gh).
 	single := `[{"id":1,"user":{"login":"alice","type":"User"},"body":"a","path":"x.go","line":1}]`
-	// Concatenated arrays, one per page (older gh --paginate).
 	concat := `[{"id":1,"user":{"login":"a","type":"User"},"body":"a"}]` +
 		`[{"id":2,"user":{"login":"gemini","type":"Bot"},"body":"b"}]`
 
@@ -218,25 +213,20 @@ func TestParseActionsRunURL(t *testing.T) {
 }
 
 func TestCheckHelpers(t *testing.T) {
-	// Completed failing CheckRun.
 	fail := Check{Name: "build", Status: "COMPLETED", Conclusion: "FAILURE", DetailsURL: "u"}
 	if !fail.IsComplete() || !fail.IsFailure() || fail.CheckName() != "build" || fail.URL() != "u" {
 		t.Errorf("failing CheckRun: %+v", fail)
 	}
-	// In-progress check is not complete.
 	if (Check{Name: "x", Status: "IN_PROGRESS"}).IsComplete() {
 		t.Error("IN_PROGRESS should not be complete")
 	}
-	// Passing CheckRun.
 	if (Check{Status: "COMPLETED", Conclusion: "SUCCESS"}).IsFailure() {
 		t.Error("SUCCESS should not be a failure")
 	}
-	// Legacy StatusContext failure.
 	sc := Check{Context: "ci/legacy", State: "FAILURE", TargetURL: "t"}
 	if !sc.IsComplete() || !sc.IsFailure() || sc.CheckName() != "ci/legacy" || sc.URL() != "t" {
 		t.Errorf("StatusContext: %+v", sc)
 	}
-	// Pending StatusContext is not complete.
 	if (Check{Context: "x", State: "PENDING"}).IsComplete() {
 		t.Error("PENDING StatusContext should not be complete")
 	}
@@ -328,7 +318,6 @@ func TestDecodeAuthorPage(t *testing.T) {
 }
 
 func TestDecodeAuthorPage_LastPageWrongField(t *testing.T) {
-	// No next page, and querying a field absent from the response yields nothing.
 	data := []byte(`{"data":{"repository":{"pullRequest":{"reviews":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}}}}`)
 	nodes, hasNext, _, err := decodeAuthorPage(data, "comments")
 	if err != nil {
@@ -431,7 +420,6 @@ func TestDecodeReviewThreads_NoComments(t *testing.T) {
 	}
 }
 
-// fakeGHThreadCalls installs a fake `gh` recording each invocation (@@@-delimited, since GraphQL queries contain newlines) and returning one unresolved thread; the returned func parses the recorded calls.
 func fakeGHThreadCalls(t *testing.T) func() []string {
 	t.Helper()
 	dir := t.TempDir()
@@ -498,7 +486,6 @@ func TestReplyToThreadsByComment_Resolve(t *testing.T) {
 		map[int64]ThreadReply{42: {Body: "Narrowed the regex.", Resolve: true}})
 
 	calls := readCalls()
-	// Expect 3 calls: GraphQL fetch + REST reply + GraphQL resolve (resolved thread PRRT_def skipped).
 	if len(calls) != 3 {
 		t.Fatalf("expected 3 gh calls, got %d:\n%v", len(calls), calls)
 	}
@@ -523,7 +510,6 @@ func TestReplyToThreadsByComment_NoResolve(t *testing.T) {
 		map[int64]ThreadReply{42: {Body: "Kept by design.", Resolve: false}})
 
 	calls := readCalls()
-	// Expect 2 calls: 1 GraphQL fetch + 1 REST reply. No resolve when Resolve is false.
 	if len(calls) != 2 {
 		t.Fatalf("expected 2 gh calls, got %d:\n%v", len(calls), calls)
 	}
@@ -540,7 +526,6 @@ func TestReplyToThreadsByComment_NoResolve(t *testing.T) {
 func TestReplyToThreadsByComment_UntouchedThreadGetsNothing(t *testing.T) {
 	readCalls := fakeGHThreadCalls(t)
 
-	// No reply keyed to comment 42, only an unrelated ID — leave the thread alone: just fetch, no reply, no resolve.
 	New().ReplyToThreadsByComment(context.Background(), "https://github.com/me/repo/pull/7",
 		map[int64]ThreadReply{777: {Body: "unrelated", Resolve: true}})
 

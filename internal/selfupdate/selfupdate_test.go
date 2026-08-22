@@ -40,7 +40,6 @@ func TestAssetName(t *testing.T) {
 		version, goos, goarch string
 		want                  string
 	}{
-		// .Version strips the leading "v".
 		{"v0.1.0", "linux", "amd64", "noctra_0.1.0_linux_amd64.tar.gz"},
 		{"v0.1.0", "linux", "arm64", "noctra_0.1.0_linux_arm64.tar.gz"},
 		{"v0.1.0", "linux", "arm", "noctra_0.1.0_linux_armv7.tar.gz"},

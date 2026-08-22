@@ -9,7 +9,7 @@ func init() {
 	Register(Task{
 		Name:         "lint-cleanup",
 		Description:  "Fix linter warnings and static analysis issues",
-		Cooldown:     7 * 24 * time.Hour, // weekly
+		Cooldown:     7 * 24 * time.Hour,
 		BranchSuffix: "lint-cleanup",
 		CommitPrefix: "chore",
 		PRLabel:      "maintenance",

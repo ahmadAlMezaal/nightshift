@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// recorder is a test Notifier that logs calls.
 type recorder struct {
 	mu       sync.Mutex
 	messages []string
@@ -34,12 +33,10 @@ func TestMultiSendFansOut(t *testing.T) {
 
 	m.Send(context.Background(), "hello")
 
-	// Send is async (fires goroutines), so SendSync is a better test.
 	if err := m.SendSync(context.Background(), "world"); err != nil {
 		t.Fatalf("SendSync: %v", err)
 	}
 
-	// SendSync messages are guaranteed to be recorded.
 	if len(a.messages) == 0 || a.messages[len(a.messages)-1] != "world" {
 		t.Errorf("backend A missing sync message: %v", a.messages)
 	}
@@ -92,7 +89,6 @@ func TestMultiString(t *testing.T) {
 
 func TestMultiNilSafe(t *testing.T) {
 	var m *Multi
-	// Should not panic.
 	m.Send(context.Background(), "test")
 	if m.String() != "Disabled" {
 		t.Errorf("nil Multi.String() should be Disabled")
@@ -112,7 +108,6 @@ func TestMultiFiltersNilBackends(t *testing.T) {
 	}
 }
 
-// Verify concrete types satisfy the Notifier interface at compile time.
 var (
 	_ Notifier = (*Telegram)(nil)
 	_ Notifier = (*Slack)(nil)

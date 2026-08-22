@@ -1,4 +1,3 @@
-// Package review is the optional Gemini second-model review gate: it sends the staged diff + ticket context to Gemini and parses a PASS/FAIL verdict.
 package review
 
 import (
@@ -18,10 +17,8 @@ import (
 
 const defaultMode = "api"
 
-// ErrUnavailable means the Gemini backend isn't usable on this host (CLI missing, not logged in); callers skip the gate rather than treat it as a failed review.
 var ErrUnavailable = errors.New("gemini review unavailable")
 
-// Finding is one line-anchored review comment.
 type Finding struct {
 	Path     string `json:"path"`
 	Line     int    `json:"line"`
@@ -29,20 +26,14 @@ type Finding struct {
 	Comment  string `json:"comment"`
 }
 
-// Result is the outcome of a single review pass.
 type Result struct {
-	Passed bool
-	// Skipped reports the gate couldn't run (backend unavailable on this host).
-	Skipped bool
-	// Body is Gemini's review text, surfaced in the PR body when the gate didn't pass.
-	Body string
-	// Summary is the short overall assessment (structured API mode only).
-	Summary string
-	// Findings are line-anchored comments to post inline (structured API mode only).
+	Passed   bool
+	Skipped  bool
+	Body     string
+	Summary  string
 	Findings []Finding
 }
 
-// Render flattens a structured result into readable text for the fix prompt and PR-body fallback.
 func (r Result) Render() string {
 	var b strings.Builder
 	if s := strings.TrimSpace(r.Summary); s != "" {
@@ -63,7 +54,6 @@ func (r Result) Render() string {
 	return strings.TrimSpace(b.String())
 }
 
-// Gate is a Gemini-backed reviewer.
 type Gate struct {
 	Mode   string
 	APIKey string
@@ -71,12 +61,10 @@ type Gate struct {
 	HTTP   *http.Client
 }
 
-// New returns a Gate. model defaults to "gemini-2.5-pro" when empty.
 func New(apiKey, model string) *Gate {
 	return NewWithMode(defaultMode, apiKey, model)
 }
 
-// NewWithMode returns a Gate for either the Gemini API or Gemini CLI.
 func NewWithMode(mode, apiKey, model string) *Gate {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode == "" {
@@ -93,7 +81,6 @@ func NewWithMode(mode, apiKey, model string) *Gate {
 	}
 }
 
-// Enabled reports whether the gate is configured to run.
 func (g *Gate) Enabled() bool {
 	if g == nil {
 		return false
@@ -101,7 +88,6 @@ func (g *Gate) Enabled() bool {
 	return g.Mode == "cli" || g.APIKey != ""
 }
 
-// Review sends a diff + ticket context to Gemini and returns its verdict.
 func (g *Gate) Review(ctx context.Context, ticketTitle, ticketDescription, diff string) (Result, error) {
 	if !g.Enabled() {
 		return Result{Passed: true, Body: "PASS (Gemini not configured)"}, nil
@@ -396,7 +382,6 @@ func reviewVerdict(text string) string {
 	return ""
 }
 
-// SummarizeLessons uses Gemini to consolidate a new post-merge diff with existing lessons.
 func (g *Gate) SummarizeLessons(ctx context.Context, existingLessons, diff string) (string, error) {
 	if !g.Enabled() {
 		return "", errors.New("gemini not enabled")

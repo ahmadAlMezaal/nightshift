@@ -1,5 +1,3 @@
-// Package doctor implements `noctra doctor` — a preflight check that
-// validates dependencies, credentials, and config before you try to run.
 package doctor
 
 import (
@@ -16,7 +14,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 )
 
-// check is a single pass/fail diagnostic result.
 type check struct {
 	name   string
 	ok     bool
@@ -24,14 +21,11 @@ type check struct {
 	hint   string
 }
 
-// gather runs every preflight check side-effect-free so Run and RunJSON share it.
 func gather(scriptDir string) []check {
 	var checks []check
 
-	// Load config first so the CLI check knows the required agent backend; on failure fall back to the default backend's CLIs.
 	cfg, loadErr := config.Load(scriptDir)
 
-	// ── Required CLIs ────────────────────────────────────────────────────────
 	var clis []string
 	if loadErr == nil {
 		clis = cfg.RequiredCLIs()
@@ -58,27 +52,23 @@ func gather(scriptDir string) []check {
 		checks = append(checks, checkCLI(cli))
 	}
 
-	// ── Optional agent CLIs (per-ticket label selection) ─────────────────────
-	// A ticket's "agent:<name>" label can override the backend, so non-default CLIs are advisory-only (always OK).
 	if loadErr == nil {
 		defaultCLI := cfg.AgentCLI()
 		for _, cli := range cfg.AllCandidateCLIs() {
 			if cli == defaultCLI || cli == "git" || cli == "gh" {
-				continue // already checked above
+				continue
 			}
 			c := checkCLI(cli)
 			if !c.ok {
-				c.ok = true // advisory, not a hard failure
+				c.ok = true
 				c.detail = "not installed (optional — needed if a ticket uses agent:" + cli + " label)"
 			}
 			checks = append(checks, c)
 		}
 	}
 
-	// ── gh auth ──────────────────────────────────────────────────────────────
 	checks = append(checks, checkGHAuth())
 
-	// ── Config + Linear ──────────────────────────────────────────────────────
 	if loadErr != nil {
 		checks = append(checks, check{
 			name:   "config",
@@ -91,7 +81,6 @@ func gather(scriptDir string) []check {
 		checks = append(checks, checkDashboard(cfg))
 	}
 
-	// ── Config dir ───────────────────────────────────────────────────────────
 	checks = append(checks, check{
 		name:   "config dir",
 		ok:     true,
@@ -101,14 +90,12 @@ func gather(scriptDir string) []check {
 	return checks
 }
 
-// Run performs all preflight checks and prints a human-readable report.
 func Run(scriptDir string) error {
 	fmt.Println("Checking dependencies and configuration...")
 	fmt.Println()
 
 	checks := gather(scriptDir)
 
-	// ── Report ───────────────────────────────────────────────────────────────
 	passed, failed := 0, 0
 	for _, c := range checks {
 		if c.ok {
@@ -132,7 +119,6 @@ func Run(scriptDir string) error {
 	return nil
 }
 
-// jsonCheck is a single check as emitted by `noctra doctor --json`.
 type jsonCheck struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
@@ -140,7 +126,6 @@ type jsonCheck struct {
 	Hint   string `json:"hint,omitempty"`
 }
 
-// RunJSON writes all checks to w as a {name, ok, detail, hint} JSON array, then returns a non-nil error if any failed.
 func RunJSON(scriptDir string, w io.Writer) error {
 	checks := gather(scriptDir)
 
@@ -164,7 +149,6 @@ func RunJSON(scriptDir string, w io.Writer) error {
 	return nil
 }
 
-// checkCLI verifies a single CLI binary is on PATH.
 func checkCLI(name string) check {
 	path, err := exec.LookPath(name)
 	if err != nil {
@@ -185,7 +169,6 @@ func checkCLI(name string) check {
 	return check{name: name, ok: true, detail: path}
 }
 
-// checkGHAuth verifies `gh` is authenticated.
 func checkGHAuth() check {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return check{
@@ -207,7 +190,6 @@ func checkGHAuth() check {
 		}
 	}
 
-	// Extract the account line from gh auth status output.
 	for _, line := range strings.Split(string(out), "\n") {
 		if strings.Contains(line, "Logged in") {
 			return check{name: "gh auth", ok: true, detail: strings.TrimSpace(line)}
@@ -219,7 +201,6 @@ func checkGHAuth() check {
 	return check{name: "gh auth", ok: true, detail: "authenticated"}
 }
 
-// checkLinearKey pings Linear with the configured credential, preferring an OAuth token over the personal API key.
 func checkLinearKey(cfg *config.Config) check {
 	name := "LINEAR_API_KEY"
 	var client *linear.Client
@@ -268,7 +249,6 @@ func checkLinearKey(cfg *config.Config) check {
 	return check{name: name, ok: true, detail: fmt.Sprintf("authenticated as %s", who)}
 }
 
-// checkDashboard reports whether the dashboard is enabled and warns if exposed without auth.
 func checkDashboard(cfg *config.Config) check {
 	if cfg.DashboardAddr == "" {
 		return check{
@@ -296,7 +276,6 @@ func checkDashboard(cfg *config.Config) check {
 	}
 }
 
-// checkRepos is informational: repos route per-ticket via Linear `Repo:` directives (REPO_PATH is an optional fallback), so nothing validates up front.
 func checkRepos(cfg *config.Config) check {
 	if cfg.RepoPath != "" {
 		return check{

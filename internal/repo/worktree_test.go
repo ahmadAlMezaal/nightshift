@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// TestCreateAndCleanupWorktree drives real git against a temp repo.
 func TestCreateAndCleanupWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -31,7 +30,6 @@ func TestCreateAndCleanupWorktree(t *testing.T) {
 	mustGit("init", "-b", "main", "--quiet")
 	mustGit("config", "user.email", "t@t")
 	mustGit("config", "user.name", "T")
-	// Throwaway fixture — keep commits hermetic regardless of host git config.
 	mustGit("config", "commit.gpgsign", "false")
 	mustGit("remote", "add", "origin", repo)
 
@@ -72,7 +70,6 @@ func TestCreateWorktree_BadRepoPath(t *testing.T) {
 	}
 }
 
-// TestResumeWorktree_PicksUpExistingBranchCommits: after committing+pushing a marker on the branch, ResumeWorktree carries it forward instead of recreating from main.
 func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -105,7 +102,6 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	base := t.TempDir()
 	ctx := context.Background()
 
-	// Round 1 — fresh ticket: worktree from main, commit, push.
 	wt1, err := CreateWorktree(ctx, base, "ENG-300", repo, "main")
 	if err != nil {
 		t.Fatalf("CreateWorktree: %v", err)
@@ -127,10 +123,8 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	runInWt("commit", "-m", "attempt-1", "--quiet")
 	runInWt("push", "-u", "origin", wt1.Branch, "--quiet")
 
-	// Tear down between rounds, as in a real lifecycle (cleanup after the first PR).
 	CleanupWorktree(ctx, repo, base, "ENG-300")
 
-	// Round 2 — resume: should bring back the marker, NOT start fresh.
 	wt2, err := ResumeWorktree(ctx, base, "ENG-300", repo)
 	if err != nil {
 		t.Fatalf("ResumeWorktree: %v", err)
@@ -145,7 +139,6 @@ func TestResumeWorktree_PicksUpExistingBranchCommits(t *testing.T) {
 	CleanupWorktree(ctx, repo, base, "ENG-300")
 }
 
-// TestResumeWorktree_OverStaleWorktree resumes while a stale worktree for the branch is still checked out (e.g. a crash skipped cleanup): cleanup must remove the worktree before the branch, else `worktree add -b` fails.
 func TestResumeWorktree_OverStaleWorktree(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -196,7 +189,6 @@ func TestResumeWorktree_OverStaleWorktree(t *testing.T) {
 	runInWt("commit", "-m", "attempt-1", "--quiet")
 	runInWt("push", "-u", "origin", wt1.Branch, "--quiet")
 
-	// Deliberately DO NOT clean up — the branch stays checked out in wt1.
 	wt2, err := ResumeWorktree(ctx, base, "ENG-400", repo)
 	if err != nil {
 		t.Fatalf("ResumeWorktree over a stale worktree: %v", err)
@@ -240,7 +232,6 @@ func TestResumeWorktree_FailsIfBranchNotOnRemote(t *testing.T) {
 	}
 }
 
-// newFixtureRepo builds a throwaway clone with one commit on main and an origin remote pointing at itself.
 func newFixtureRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -266,9 +257,6 @@ func newFixtureRepo(t *testing.T) string {
 	return dir
 }
 
-// TestCreateWorktreeWithBranch_ConcurrentSameRepo is the regression test for two sweep tasks landing on
-// one repo in a single cycle: both drive `git worktree add` against the shared clone, and without the
-// per-repo lock the loser dies on "could not lock config file .git/config".
 func TestCreateWorktreeWithBranch_ConcurrentSameRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -284,7 +272,7 @@ func TestCreateWorktreeWithBranch_ConcurrentSameRepo(t *testing.T) {
 	start.Add(1)
 	for i := 0; i < n; i++ {
 		go func(i int) {
-			start.Wait() // release all goroutines at once to maximise contention
+			start.Wait()
 			id := fmt.Sprintf("SWEEP-FIXTURE-TASK-%d", i)
 			_, err := CreateWorktreeWithBranch(ctx, base, id, repoDir, "main", "noctra/sweep-task-"+strconv.Itoa(i))
 			errs <- err
@@ -299,8 +287,6 @@ func TestCreateWorktreeWithBranch_ConcurrentSameRepo(t *testing.T) {
 	}
 }
 
-// TestLockRepo_DistinctReposDoNotBlock guards the lock's granularity: it must be per clone, not global,
-// or sweeps across different repos would serialize needlessly.
 func TestLockRepo_DistinctReposDoNotBlock(t *testing.T) {
 	unlockA := lockRepo("/repos/a")
 	defer unlockA()
@@ -318,13 +304,12 @@ func TestLockRepo_DistinctReposDoNotBlock(t *testing.T) {
 	}
 }
 
-// TestLockRepo_SamePathSerializes confirms differing spellings of one path share a lock.
 func TestLockRepo_SamePathSerializes(t *testing.T) {
 	unlock := lockRepo("/repos/a")
 
 	acquired := make(chan struct{})
 	go func() {
-		lockRepo("/repos/a/../a")() // same clone, different spelling
+		lockRepo("/repos/a/../a")()
 		close(acquired)
 	}()
 
@@ -342,7 +327,6 @@ func TestLockRepo_SamePathSerializes(t *testing.T) {
 	}
 }
 
-// gitIn runs a git command in dir, failing the test on error.
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 	cmd := exec.Command("git", args...)
@@ -352,9 +336,6 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestCreateOrResumeWorktree_ResumesOrphanedBranch is the regression test for a run that pushed its
-// branch but died before opening a PR: every later attempt branched from main instead, producing a
-// non-descendant origin rejected as non-fast-forward.
 func TestCreateOrResumeWorktree_ResumesOrphanedBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -362,7 +343,6 @@ func TestCreateOrResumeWorktree_ResumesOrphanedBranch(t *testing.T) {
 
 	repoDir := newFixtureRepo(t)
 
-	// Simulate the orphaned push: a branch one commit ahead of main, with no PR.
 	gitIn(t, repoDir, "checkout", "-q", "-b", "noctra/eng-414")
 	if err := os.WriteFile(filepath.Join(repoDir, "orphan.md"), []byte("prior attempt"), 0o600); err != nil {
 		t.Fatal(err)
@@ -384,7 +364,6 @@ func TestCreateOrResumeWorktree_ResumesOrphanedBranch(t *testing.T) {
 	}
 }
 
-// TestCreateOrResumeWorktree_FreshWhenNoRemoteBranch keeps the normal path branching off main.
 func TestCreateOrResumeWorktree_FreshWhenNoRemoteBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

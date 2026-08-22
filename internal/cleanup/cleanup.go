@@ -1,4 +1,3 @@
-// Package cleanup implements `noctra cleanup` — prunes stale branches, worktrees, and old agent logs across every registered repo.
 package cleanup
 
 import (
@@ -16,7 +15,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 )
 
-// Run performs an interactive cleanup unless force is true.
 func Run(ctx context.Context, cfg *config.Config, force bool) error {
 	fmt.Println()
 	fmt.Println("🧹 Noctra Cleanup")
@@ -38,7 +36,6 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 	for _, r := range repos {
 		fmt.Printf("📁 %s\n", r)
 
-		// ── Merged branches ─────────────────────────────────────────────────
 		if branches := merged(ctx, r, cfg.MainBranch); len(branches) > 0 {
 			fmt.Printf("  Merged branches to delete (%d):\n", len(branches))
 			for _, b := range branches {
@@ -53,7 +50,6 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 			}
 		}
 
-		// ── Unmerged noctra/* branches ──────────────────────────────────
 		if branches := unmergedNoctra(ctx, r, cfg.MainBranch); len(branches) > 0 {
 			fmt.Println("  ⚠️  Unmerged Noctra branches (from failed runs):")
 			for _, b := range branches {
@@ -84,7 +80,6 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 		fmt.Println()
 	}
 
-	// ── Stale worktrees ──────────────────────────────────────────────────────
 	if dirs := worktreeDirs(cfg.WorktreeBase); len(dirs) > 0 {
 		fmt.Printf("Stale worktrees (%d):\n", len(dirs))
 		for _, d := range dirs {
@@ -101,7 +96,6 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 		fmt.Println()
 	}
 
-	// ── Old agent logs (>7 days) ─────────────────────────────────────────────
 	if old := logsOlderThan(cfg.LogDir, 7*24*time.Hour); len(old) > 0 {
 		fmt.Printf("Agent logs older than 7 days (%d):\n", len(old))
 		for _, f := range old {
@@ -127,7 +121,6 @@ func Run(ctx context.Context, cfg *config.Config, force bool) error {
 	return nil
 }
 
-// merged returns local branches reachable from mainBranch, minus protected ones (main/master/staging).
 func merged(ctx context.Context, repoPath, mainBranch string) []string {
 	out, err := outputOf(ctx, repoPath, "git", "branch", "--merged", mainBranch)
 	if err != nil {
@@ -142,7 +135,6 @@ func merged(ctx context.Context, repoPath, mainBranch string) []string {
 	})
 }
 
-// unmergedNoctra returns noctra/* branches not yet merged into mainBranch.
 func unmergedNoctra(ctx context.Context, repoPath, mainBranch string) []string {
 	out, err := outputOf(ctx, repoPath, "git", "branch", "--no-merged", mainBranch)
 	if err != nil {

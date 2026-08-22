@@ -1,4 +1,3 @@
-// Package config loads Noctra's runtime configuration from .env and the environment into a validated Config.
 package config
 
 import (
@@ -10,7 +9,6 @@ import (
 	"strings"
 )
 
-// LoadEnvFile reads a KEY=VALUE .env file (# comments and blanks skipped, optional surrounding quotes stripped); a missing file yields an empty map, not an error.
 func LoadEnvFile(path string) (map[string]string, error) {
 	out := map[string]string{}
 
@@ -47,7 +45,6 @@ func LoadEnvFile(path string) (map[string]string, error) {
 	return out, nil
 }
 
-// PatchEnvFile atomically upserts updates into path's .env: matched keys replaced in-place, new keys appended, comments/blanks/order preserved (mode 0600). The single shared .env writer.
 func PatchEnvFile(path string, updates map[string]string) error {
 	if len(updates) == 0 {
 		return nil
@@ -77,7 +74,6 @@ func PatchEnvFile(path string, updates map[string]string) error {
 		}
 	}
 
-	// append unmatched keys, sorted for deterministic output
 	var newKeys []string
 	for key := range updates {
 		if !seen[key] {
@@ -97,7 +93,6 @@ func PatchEnvFile(path string, updates map[string]string) error {
 	return atomicWriteFile(path, []byte(content), 0o600)
 }
 
-// atomicWriteFile writes via a temp file + rename to avoid partial writes on crash.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -131,7 +126,6 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// splitLines splits s into lines, trimming one trailing newline to avoid a phantom empty element.
 func splitLines(s string) []string {
 	s = strings.TrimSuffix(s, "\n")
 	if s == "" {

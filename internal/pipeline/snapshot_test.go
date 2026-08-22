@@ -26,7 +26,6 @@ func TestSnapshot(t *testing.T) {
 
 	snap := p.Snapshot()
 
-	// Active should contain ENG-1 and ENG-2.
 	if len(snap.Active) != 2 {
 		t.Fatalf("expected 2 active, got %d", len(snap.Active))
 	}
@@ -47,7 +46,6 @@ func TestSnapshot(t *testing.T) {
 	if activeRepoSet["ENG-2"] != "other-repo" {
 		t.Errorf("ENG-2 repo = %q, want other-repo", activeRepoSet["ENG-2"])
 	}
-	// Active entries carry the instance backend; ENG-1 also has run-type + start.
 	if byID["ENG-1"].Agent != "claude" {
 		t.Errorf("ENG-1 agent = %q, want claude", byID["ENG-1"].Agent)
 	}
@@ -58,8 +56,6 @@ func TestSnapshot(t *testing.T) {
 		t.Error("ENG-1 started_at should be set")
 	}
 
-	// Queued should contain ENG-3 (has failed attempts, not active, not skipped).
-	// ENG-1 has failedAttempts=0 but is active, so excluded from queued.
 	if len(snap.Queued) != 1 {
 		t.Fatalf("expected 1 queued, got %d: %v", len(snap.Queued), snap.Queued)
 	}
@@ -71,7 +67,6 @@ func TestSnapshot(t *testing.T) {
 		t.Errorf("queued repo = %q, want my-repo", q.Repo)
 	}
 
-	// Skipped should contain ENG-4.
 	if len(snap.Skipped) != 1 || snap.Skipped[0] != "ENG-4" {
 		t.Errorf("skipped = %v, want [ENG-4]", snap.Skipped)
 	}

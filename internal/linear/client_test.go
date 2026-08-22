@@ -11,8 +11,6 @@ import (
 	"testing"
 )
 
-// fakeServer spins up an httptest server that decodes the GraphQL request and
-// returns the given response body.
 func fakeServer(t *testing.T, want struct {
 	authHeader string
 	query      string
@@ -102,8 +100,6 @@ func TestFetchTriggerIssues_ParsesProject(t *testing.T) {
 }
 
 func TestProjectIssueCounts_AggregatesAndOrders(t *testing.T) {
-	// Issues arrive in arbitrary state order; the result must be grouped per
-	// state and sorted by board position (Backlog=0 → In Review=3).
 	state := func(name, typ string, pos float64) map[string]any {
 		return map[string]any{"state": map[string]any{"name": name, "type": typ, "position": pos}}
 	}
@@ -631,7 +627,6 @@ func TestResolveStateIDs_SkipsTriggerWhenEmpty(t *testing.T) {
 		},
 	})
 
-	// With empty triggerName, only in-review is required. Done resolves too.
 	ids, err := client.ResolveStateIDs(context.Background(), "ENG", "", "In Review", "Done")
 	if err != nil {
 		t.Fatalf("ResolveStateIDs: %v", err)

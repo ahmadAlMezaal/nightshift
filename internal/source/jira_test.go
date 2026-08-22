@@ -184,7 +184,6 @@ func TestJiraADFToTextRich(t *testing.T) {
 }
 
 func TestJiraADFToTextRepoDirectiveSeparateParagraphs(t *testing.T) {
-	// Repo: and Branch: in separate paragraphs must yield separate lines so ParseRepoDirective finds both.
 	doc := &jiraADFDocument{
 		Type: "doc",
 		Content: []jiraADFContent{

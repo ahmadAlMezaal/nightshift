@@ -9,7 +9,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// testStore opens a throwaway SQLite store in t.TempDir().
 func testStore(t *testing.T) *state.Store {
 	t.Helper()
 	s, err := state.Open(filepath.Join(t.TempDir(), "test-state.db"))

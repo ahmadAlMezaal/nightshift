@@ -11,18 +11,16 @@ import (
 	"strings"
 )
 
-// JiraConfig contains the settings for the Jira Cloud source.
 type JiraConfig struct {
-	BaseURL        string // e.g. "https://your-org.atlassian.net"
-	UserEmail      string // Jira account email for basic auth
-	APIToken       string // Jira API token (https://id.atlassian.com/manage-profile/security/api-tokens)
-	Project        string // Jira project key, e.g. "PROJ"
-	TriggerStatus  string // status name that triggers dispatch, e.g. "To Do"
-	InReviewStatus string // status name after PR is opened, e.g. "In Review"
-	TriggerLabel   string // optional: label that triggers dispatch instead of status
+	BaseURL        string
+	UserEmail      string
+	APIToken       string
+	Project        string
+	TriggerStatus  string
+	InReviewStatus string
+	TriggerLabel   string
 }
 
-// JiraSource polls Jira Cloud for issues by status or label via REST API v3 with basic auth (email + API token).
 type JiraSource struct {
 	cfg    JiraConfig
 	client *http.Client
@@ -91,7 +89,6 @@ func (s *JiraSource) RemovePlanLabel(context.Context, Ticket) error {
 }
 
 func (s *JiraSource) BackToTrigger(ctx context.Context, ticket Ticket, body string) error {
-	// Status transitions are workflow-dependent, so only post a comment; the JQL trigger won't re-fetch unless still in trigger status.
 	return s.Comment(ctx, ticket, body)
 }
 
@@ -118,8 +115,6 @@ func (s *JiraSource) Comment(ctx context.Context, ticket Ticket, body string) er
 	return s.addComment(ctx, ticket.Identifier, body)
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
-
 func (s *JiraSource) buildFetchJQL() string {
 	if s.cfg.TriggerLabel != "" {
 		return fmt.Sprintf(`project = %q AND labels = %q AND statusCategory != "Done" ORDER BY created ASC`,
@@ -129,7 +124,6 @@ func (s *JiraSource) buildFetchJQL() string {
 		s.cfg.Project, s.cfg.TriggerStatus)
 }
 
-// ticket converts a Jira issue to the source-neutral Ticket shape.
 func (s *JiraSource) ticket(issue jiraIssue) Ticket {
 	desc := issue.descriptionText()
 	repoRef, repoBranch := ParseRepoDirective(desc)
@@ -166,8 +160,6 @@ func (s *JiraSource) ticket(issue jiraIssue) Ticket {
 	}
 }
 
-// ── Jira REST API types ───────────────────────────────────────────────────────
-
 type jiraIssue struct {
 	ID     string     `json:"id"`
 	Key    string     `json:"key"`
@@ -176,7 +168,7 @@ type jiraIssue struct {
 
 type jiraFields struct {
 	Summary     string           `json:"summary"`
-	Description *jiraADFDocument `json:"description"` // ADF (Atlassian Document Format) or null
+	Description *jiraADFDocument `json:"description"`
 	Status      jiraStatus       `json:"status"`
 	Project     jiraProject      `json:"project"`
 	Labels      []string         `json:"labels"`
@@ -197,7 +189,7 @@ type jiraCommentPage struct {
 }
 
 type jiraComment struct {
-	Body   *jiraADFDocument `json:"body"` // ADF or null
+	Body   *jiraADFDocument `json:"body"`
 	Author jiraUser         `json:"author"`
 }
 
@@ -205,7 +197,6 @@ type jiraUser struct {
 	DisplayName string `json:"displayName"`
 }
 
-// jiraADFDocument is a minimal Atlassian Document Format tree, flattened to plain text for the prompt / Repo: parsing.
 type jiraADFDocument struct {
 	Type    string           `json:"type"`
 	Content []jiraADFContent `json:"content"`
@@ -217,7 +208,6 @@ type jiraADFContent struct {
 	Content []jiraADFContent `json:"content,omitempty"`
 }
 
-// descriptionText flattens the Jira ADF description to plain text.
 func (issue jiraIssue) descriptionText() string {
 	if issue.Fields.Description == nil {
 		return ""
@@ -225,7 +215,6 @@ func (issue jiraIssue) descriptionText() string {
 	return adfToText(issue.Fields.Description)
 }
 
-// bodyText flattens an ADF comment body to plain text.
 func (c jiraComment) bodyText() string {
 	if c.Body == nil {
 		return ""
@@ -233,7 +222,6 @@ func (c jiraComment) bodyText() string {
 	return adfToText(c.Body)
 }
 
-// adfToText extracts plain text from an Atlassian Document Format tree.
 func adfToText(doc *jiraADFDocument) string {
 	if doc == nil {
 		return ""
@@ -268,8 +256,6 @@ type jiraMeta struct {
 	BaseURL string
 	Key     string
 }
-
-// ── Jira REST API calls ───────────────────────────────────────────────────────
 
 func (s *JiraSource) authHeader() string {
 	cred := s.cfg.UserEmail + ":" + s.cfg.APIToken
@@ -362,7 +348,6 @@ func (s *JiraSource) getComments(ctx context.Context, key string) ([]Comment, er
 }
 
 func (s *JiraSource) addComment(ctx context.Context, key, text string) error {
-	// API v3 expects ADF; text nodes can't contain newlines, so split on "\n" and insert hardBreak nodes.
 	lines := strings.Split(text, "\n")
 	content := make([]any, 0, len(lines)*2)
 	for i, line := range lines {
@@ -409,7 +394,6 @@ func (s *JiraSource) addComment(ctx context.Context, key, text string) error {
 }
 
 func (s *JiraSource) transitionTo(ctx context.Context, key, targetStatus string) error {
-	// Transitions are workflow-dependent: list available transitions, match one whose "to" status is targetStatus, then execute it.
 	resp, err := s.doRequest(ctx, http.MethodGet,
 		fmt.Sprintf("/rest/api/3/issue/%s/transitions", key), nil)
 	if err != nil {
@@ -453,7 +437,6 @@ func (s *JiraSource) transitionTo(ctx context.Context, key, targetStatus string)
 		return fmt.Errorf("jira execute transition %s: %w", key, err)
 	}
 	defer resp2.Body.Close()
-	// 204 No Content on success.
 	if resp2.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(resp2.Body)
 		return fmt.Errorf("jira execute transition %s: HTTP %d: %s", key, resp2.StatusCode, string(respBody))
@@ -479,7 +462,6 @@ func (s *JiraSource) removeLabel(ctx context.Context, key, label string) error {
 		return fmt.Errorf("jira remove label %s: %w", key, err)
 	}
 	defer resp.Body.Close()
-	// 204 No Content on success.
 	if resp.StatusCode != http.StatusNoContent {
 		respBody, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("jira remove label %s: HTTP %d: %s", key, resp.StatusCode, string(respBody))

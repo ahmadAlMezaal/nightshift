@@ -26,6 +26,9 @@ build: ## Compile the local binary
 test: ## Run the test suite
 	go test ./...
 
+check-comments: ## Fail if any Go file carries a non-directive comment
+	@./scripts/check-comments.sh
+
 vet: ## Run go vet
 	go vet ./...
 

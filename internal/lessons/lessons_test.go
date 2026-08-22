@@ -96,7 +96,6 @@ esac
 		RepoPath:  dir,
 	}
 
-	// Mock review gate using a dummy API key to make it "enabled"
 	reviewGate := review.New("dummy_key", "gemini-2.5-pro")
 	geminiScript := `#!/bin/sh
 echo "Lesson 1: updated lessons from mock"
@@ -121,13 +120,11 @@ echo "Lesson 1: updated lessons from mock"
 		t.Error("expected lessons to be non-empty for owner-repo")
 	}
 
-	// Check if closed PR was marked processed (but no lessons update expected)
 	p2State := store.Get(pr2)
 	if !p2State.MergedProcessed {
 		t.Error("expected pr2 MergedProcessed to be true")
 	}
 
-	// Check if open PR was skipped (MergedProcessed should still be false)
 	p3State := store.Get(pr3)
 	if p3State.MergedProcessed {
 		t.Error("expected pr3 MergedProcessed to be false")

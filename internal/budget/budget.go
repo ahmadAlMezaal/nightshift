@@ -1,4 +1,3 @@
-// Package budget tracks token/cost usage across agent runs, enforces daily caps, and provides pause/resume for the pipeline when caps or rate limits hit.
 package budget
 
 import (
@@ -7,13 +6,11 @@ import (
 	"time"
 )
 
-// Config holds the daily usage caps. Zero values mean unlimited.
 type Config struct {
 	MaxDailyTokens int64
 	MaxDailyUSD    float64
 }
 
-// Stats is a snapshot of current usage and pause state, safe for display.
 type Stats struct {
 	SessionTokens  int64
 	SessionCostUSD float64
@@ -26,12 +23,10 @@ type Stats struct {
 	PauseReason    string
 }
 
-// HasCaps reports whether any budget cap is configured.
 func (s Stats) HasCaps() bool {
 	return s.MaxDailyTokens > 0 || s.MaxDailyUSD > 0
 }
 
-// Tracker tracks per-session and per-day token/cost usage, enforces daily caps, and offers concurrency-safe pause/resume. With no caps, Exceeded always returns false but Pause/IsPaused still work for rate-limit pausing.
 type Tracker struct {
 	mu  sync.Mutex
 	cfg Config
@@ -46,10 +41,9 @@ type Tracker struct {
 	pausedUntil time.Time
 	pauseReason string
 
-	now func() time.Time // testing hook, defaults to time.Now
+	now func() time.Time
 }
 
-// New returns a Tracker with the given caps. A zero Config is valid (no caps).
 func New(cfg Config) *Tracker {
 	return &Tracker{
 		cfg:      cfg,
@@ -58,7 +52,6 @@ func New(cfg Config) *Tracker {
 	}
 }
 
-// Record adds one run's tokens and cost to the session and daily totals (zeros are a harmless no-op).
 func (t *Tracker) Record(tokens int64, costUSD float64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -69,7 +62,6 @@ func (t *Tracker) Record(tokens int64, costUSD float64) {
 	t.dailyCostUSD += costUSD
 }
 
-// Exceeded reports whether any configured daily cap has been hit (false when none configured).
 func (t *Tracker) Exceeded() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -87,7 +79,6 @@ func (t *Tracker) exceeded() bool {
 	return false
 }
 
-// ExceededReason explains which cap was hit, or "" if none is exceeded.
 func (t *Tracker) ExceededReason() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -103,7 +94,6 @@ func (t *Tracker) ExceededReason() string {
 	return ""
 }
 
-// Pause pauses the tracker with a reason and optional auto-resume time (zero time = indefinite).
 func (t *Tracker) Pause(reason string, until time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -112,7 +102,6 @@ func (t *Tracker) Pause(reason string, until time.Time) {
 	t.pausedUntil = until
 }
 
-// IsPaused reports the pause state (auto-resuming when pausedUntil has passed); the poll loop's primary pre-dispatch check.
 func (t *Tracker) IsPaused() (paused bool, until time.Time, reason string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -124,7 +113,6 @@ func (t *Tracker) IsPaused() (paused bool, until time.Time, reason string) {
 	return true, t.pausedUntil, t.pauseReason
 }
 
-// maybeAutoResume clears the pause once pausedUntil has expired. Caller holds t.mu.
 func (t *Tracker) maybeAutoResume() {
 	if !t.paused {
 		return
@@ -136,7 +124,6 @@ func (t *Tracker) maybeAutoResume() {
 	}
 }
 
-// Resume manually clears a pause. Intended for future /resume commands.
 func (t *Tracker) Resume() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -145,7 +132,6 @@ func (t *Tracker) Resume() {
 	t.pausedUntil = time.Time{}
 }
 
-// Stats returns a snapshot of usage and pause state, applying IsPaused's auto-resume so callers never see stale pause info.
 func (t *Tracker) Stats() Stats {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -164,7 +150,6 @@ func (t *Tracker) Stats() Stats {
 	}
 }
 
-// maybeResetDaily resets the daily counters when a new UTC day has started. Caller holds t.mu.
 func (t *Tracker) maybeResetDaily() {
 	today := todayUTC(t.now())
 	if today.After(t.dayStart) {
@@ -174,19 +159,16 @@ func (t *Tracker) maybeResetDaily() {
 	}
 }
 
-// NextUTCMidnight returns the start of the next UTC day.
 func NextUTCMidnight() time.Time {
 	now := time.Now().UTC()
 	return time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
 }
 
-// todayUTC returns midnight UTC of the given time's date.
 func todayUTC(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
 }
 
-// formatTokens renders a token count compactly (e.g. "1.5M", "250K", "1,234").
 func formatTokens(n int64) string {
 	switch {
 	case n >= 1_000_000:
@@ -204,5 +186,4 @@ func formatTokens(n int64) string {
 	}
 }
 
-// FormatTokens is the exported formatTokens for display strings (banner, Telegram).
 func FormatTokens(n int64) string { return formatTokens(n) }

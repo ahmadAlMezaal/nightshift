@@ -239,8 +239,6 @@ func TestLogsFollow_InitialTailFrameAndAuth(t *testing.T) {
 	}
 }
 
-// ── History endpoint tests (ENG-277) ────────────────────────────────────────
-
 func newTestServerWithStore(t *testing.T, token string) (*Server, *state.Store) {
 	t.Helper()
 	store, err := state.Open(filepath.Join(t.TempDir(), "state.db"))
@@ -521,7 +519,6 @@ func TestSpend_AggregatesByAgent(t *testing.T) {
 }
 
 func TestFonts_ServedWithoutToken(t *testing.T) {
-	// @font-face url() subrequests can't carry ?token=, so fonts must load unauthenticated (no secrets), else brand fonts silently fail behind a token.
 	s := newTestServer("secret")
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
@@ -535,7 +532,6 @@ func TestFonts_ServedWithoutToken(t *testing.T) {
 		t.Fatalf("expected fonts to load without token, got %d", resp.StatusCode)
 	}
 
-	// The page itself must still require a token.
 	page, err := http.Get(ts.URL + "/")
 	if err != nil {
 		t.Fatal(err)
@@ -599,9 +595,6 @@ func TestLinearURL(t *testing.T) {
 	}
 }
 
-// ── Admin auth / control endpoint tests (ENG-276) ───────────────────────────
-
-// stubControls implements Controls for testing.
 type stubControls struct {
 	killErr     error
 	requeueErr  error
@@ -630,21 +623,18 @@ func TestAdminGating_KillEndpoint(t *testing.T) {
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 
-	// Admin token → 200
 	resp := authedPost(t, ts, "/api/kill/ENG-1", "admin-tok", "")
 	resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("admin token: expected 200, got %d", resp.StatusCode)
 	}
 
-	// Read token → 403
 	resp = authedPost(t, ts, "/api/kill/ENG-1", "read-tok", "")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("read token: expected 403, got %d", resp.StatusCode)
 	}
 
-	// No token → 401
 	req, _ := http.NewRequest("POST", ts.URL+"/api/kill/ENG-1", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -655,14 +645,12 @@ func TestAdminGating_KillEndpoint(t *testing.T) {
 		t.Errorf("no token: expected 401, got %d", resp.StatusCode)
 	}
 
-	// Wrong token → 401
 	resp = authedPost(t, ts, "/api/kill/ENG-1", "wrong", "")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Errorf("wrong token: expected 401, got %d", resp.StatusCode)
 	}
 
-	// GET → 405
 	resp = authedGet(t, ts, "/api/kill/ENG-1", "admin-tok")
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
@@ -714,7 +702,6 @@ func TestAdminGating_RetryEndpoint(t *testing.T) {
 		t.Errorf("expected 200, got %d", resp.StatusCode)
 	}
 
-	// With error
 	ctrl.retryErr = fmt.Errorf("not in skipped set")
 	resp = authedPost(t, ts, "/api/retry/ENG-2", "admin-tok", "")
 	defer resp.Body.Close()
@@ -742,7 +729,6 @@ func TestAdminGating_RequeueWithContext(t *testing.T) {
 }
 
 func TestAdminStatus_Endpoint(t *testing.T) {
-	// Admin configured
 	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 
@@ -755,7 +741,6 @@ func TestAdminStatus_Endpoint(t *testing.T) {
 	}
 	ts.Close()
 
-	// Admin not configured
 	srv2 := New(":0", "read-tok", "", func() any { return nil }, Providers{}, nil, nil)
 	ts2 := httptest.NewServer(srv2.Handler())
 	defer ts2.Close()
@@ -769,7 +754,6 @@ func TestAdminStatus_Endpoint(t *testing.T) {
 	}
 }
 
-// TestSweepEndpoint_QueuesWithFilters checks the admin sweep endpoint forwards its body to Controls.
 func TestSweepEndpoint_QueuesWithFilters(t *testing.T) {
 	ctrl := &stubControls{}
 	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
@@ -805,7 +789,6 @@ func TestSweepEndpoint_QueuesWithFilters(t *testing.T) {
 	}
 }
 
-// TestSweepEndpoint_RequiresAdminToken guards the control endpoint against the read-only token.
 func TestSweepEndpoint_RequiresAdminToken(t *testing.T) {
 	ctrl := &stubControls{}
 	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
@@ -831,7 +814,6 @@ func TestSweepEndpoint_RequiresAdminToken(t *testing.T) {
 	}
 }
 
-// TestSweepEndpoint_EmptyBodyMeansEverything: no body is a valid "sweep all eligible" request.
 func TestSweepEndpoint_EmptyBodyMeansEverything(t *testing.T) {
 	ctrl := &stubControls{}
 	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)

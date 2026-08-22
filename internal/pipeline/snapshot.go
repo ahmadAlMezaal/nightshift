@@ -6,8 +6,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/budget"
 )
 
-// activeRunMeta is the per-run metadata the dashboard shows for in-flight runs,
-// captured at dispatch time and cleared in markDone.
 type activeRunMeta struct {
 	runType   string
 	startedAt time.Time
@@ -16,9 +14,9 @@ type activeRunMeta struct {
 type ActiveEntry struct {
 	Identifier string `json:"identifier"`
 	Repo       string `json:"repo,omitempty"`
-	Agent      string `json:"agent,omitempty"`      // backend running it (e.g. "claude")
-	RunType    string `json:"run_type,omitempty"`   // "ticket" | "iterate" | "sweep" | "plan"
-	StartedAt  string `json:"started_at,omitempty"` // RFC3339, for live elapsed timers
+	Agent      string `json:"agent,omitempty"`
+	RunType    string `json:"run_type,omitempty"`
+	StartedAt  string `json:"started_at,omitempty"`
 }
 
 type QueuedEntry struct {
@@ -27,7 +25,6 @@ type QueuedEntry struct {
 	Retries    int    `json:"retries"`
 }
 
-// DashboardSnapshot is collected under a single p.mu lock for consistency.
 type DashboardSnapshot struct {
 	Active  []ActiveEntry `json:"active"`
 	Queued  []QueuedEntry `json:"queued"`

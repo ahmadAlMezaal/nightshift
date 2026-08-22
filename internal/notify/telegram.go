@@ -1,4 +1,3 @@
-// Package notify pushes status messages to chat platforms. Sends are fire-and-forget so a failure never blocks processing; SendSync validates credentials in the setup wizard.
 package notify
 
 import (
@@ -12,7 +11,6 @@ import (
 	"time"
 )
 
-// Telegram is a tiny Bot-API client.
 type Telegram struct {
 	Enabled  bool
 	BotToken string
@@ -20,7 +18,6 @@ type Telegram struct {
 	HTTP     *http.Client
 }
 
-// New returns a Telegram notifier; Send on a disabled instance no-ops.
 func New(enabled bool, botToken, chatID string) *Telegram {
 	return &Telegram{
 		Enabled:  enabled && botToken != "" && chatID != "",
@@ -30,20 +27,17 @@ func New(enabled bool, botToken, chatID string) *Telegram {
 	}
 }
 
-// Send posts a Markdown message in a background goroutine and returns immediately; a failure is logged, never returned (best-effort).
 func (t *Telegram) Send(ctx context.Context, message string) {
 	if t == nil || !t.Enabled {
 		return
 	}
 	go func() {
-		// Detach from ctx — the caller may cancel it before the round-trip completes.
 		if err := t.post(context.Background(), message); err != nil {
 			slog.Warn("notify: telegram send failed", "err", err)
 		}
 	}()
 }
 
-// SendSync posts synchronously, returning any error; the setup wizard uses it to verify the bot token + chat ID.
 func (t *Telegram) SendSync(ctx context.Context, message string) error {
 	if t == nil {
 		return fmt.Errorf("telegram client is nil")
@@ -54,7 +48,6 @@ func (t *Telegram) SendSync(ctx context.Context, message string) error {
 	return t.post(ctx, message)
 }
 
-// EscapeMarkdown backslash-escapes Telegram's strict legacy-Markdown chars (_ * ` [). Apply to dynamic values (ticket titles, BLOCKED reasons) before interpolating, leaving the template's own *bold* alone — else a title like snake_case_thing returns 400 and the notification is silently dropped (PR #52).
 func EscapeMarkdown(s string) string {
 	return mdEscaper.Replace(s)
 }

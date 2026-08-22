@@ -31,8 +31,6 @@ func (f *fakeStore) SaveOAuth(a string, e time.Time, r string) error {
 	return nil
 }
 
-// tokenServer returns a server that mints rotating tokens and records the
-// refresh_token it last received.
 func tokenServer(t *testing.T) (*httptest.Server, *int, *string) {
 	t.Helper()
 	hits := 0
@@ -207,9 +205,6 @@ func TestTokenManager_ClientCredentialsIgnoresStaleStoreRefresh(t *testing.T) {
 	}
 }
 
-// TestClient_DegradesToAPIKeyOnAuthFailure verifies the graceful fallback: when
-// the OAuth credential is rejected, the client retries with FallbackAPIKey and
-// fires OnDegrade once instead of failing the call.
 func TestClient_DegradesToAPIKeyOnAuthFailure(t *testing.T) {
 	const goodKey = "lin_api_good"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -243,7 +238,6 @@ func TestClient_DegradesToAPIKeyOnAuthFailure(t *testing.T) {
 		t.Errorf("OnDegrade called %d times, want 1", degraded)
 	}
 
-	// Subsequent calls go straight to the key without re-degrading.
 	if _, err := c.Ping(context.Background()); err != nil {
 		t.Fatalf("Ping #2: %v", err)
 	}

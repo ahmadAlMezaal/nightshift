@@ -11,7 +11,6 @@ import (
 )
 
 func TestCheckCLI_Found(t *testing.T) {
-	// "go" is guaranteed to be on PATH in a Go test.
 	c := checkCLI("go")
 	if !c.ok {
 		t.Errorf("checkCLI(go) should pass; got detail=%q", c.detail)
@@ -34,7 +33,6 @@ func TestCheckCLI_NotFound(t *testing.T) {
 func TestCheckCLI_HintsForKnownCLIs(t *testing.T) {
 	for _, cli := range []string{"git", "gh", "claude", "copilot"} {
 		c := checkCLI(cli)
-		// A missing CLI must carry a hint (install state isn't controllable here).
 		if !c.ok && c.hint == "" {
 			t.Errorf("checkCLI(%s) failed but has no hint", cli)
 		}
@@ -42,10 +40,8 @@ func TestCheckCLI_HintsForKnownCLIs(t *testing.T) {
 }
 
 func TestCheckGHAuth_Runs(t *testing.T) {
-	// Verify checkGHAuth doesn't panic (result depends on gh install/auth state).
 	c := checkGHAuth()
 	if _, err := exec.LookPath("gh"); err != nil {
-		// gh not installed — should be skipped.
 		if c.ok {
 			t.Error("checkGHAuth should not pass when gh is not installed")
 		}
@@ -56,7 +52,6 @@ func TestCheckGHAuth_Runs(t *testing.T) {
 }
 
 func TestCheckRepos_DirectiveOnly(t *testing.T) {
-	// No REPO_PATH → directive-only routing must pass with an informational note.
 	cfg := &config.Config{RepoPath: ""}
 	c := checkRepos(cfg)
 	if !c.ok {
@@ -119,7 +114,6 @@ func TestCheckDashboard_ExposedBindWarns(t *testing.T) {
 }
 
 func TestRunJSON_Shape(t *testing.T) {
-	// An empty config dir still emits checks, so the array is non-empty and well-formed.
 	var buf bytes.Buffer
 	_ = RunJSON(t.TempDir(), &buf)
 
@@ -136,7 +130,6 @@ func TestRunJSON_Shape(t *testing.T) {
 		}
 	}
 
-	// The "config dir" check must always be present and report the dir.
 	found := false
 	for _, c := range got {
 		if c.Name == "config dir" {
@@ -150,7 +143,6 @@ func TestRunJSON_Shape(t *testing.T) {
 		t.Error("expected a 'config dir' check in JSON output")
 	}
 
-	// Verify the JSON keys match the documented {name, ok, detail, hint} shape.
 	var raw []map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
 		t.Fatalf("re-unmarshal failed: %v", err)
@@ -166,14 +158,12 @@ func TestRunJSON_Shape(t *testing.T) {
 }
 
 func TestRunJSON_ReturnsErrorOnFailure(t *testing.T) {
-	// Clear LINEAR_API_KEY + empty config dir forces the Linear/config check to fail deterministically.
 	t.Setenv("LINEAR_API_KEY", "")
 	var buf bytes.Buffer
 	err := RunJSON(t.TempDir(), &buf)
 	if err == nil {
 		t.Error("expected an error when a check fails")
 	}
-	// JSON must still have been written even on failure.
 	if buf.Len() == 0 {
 		t.Error("expected JSON output even when checks fail")
 	}

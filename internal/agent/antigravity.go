@@ -5,7 +5,6 @@ import (
 	"regexp"
 )
 
-// antigravityBackend runs Google's Antigravity CLI (`agy`) in print mode; auth is a one-time host `agy` login (Google AI Pro).
 type antigravityBackend struct{}
 
 func (antigravityBackend) Name() string     { return "antigravity" }
@@ -18,7 +17,6 @@ func (b antigravityBackend) Run(ctx context.Context, opts RunOptions) (Usage, er
 	return ParseUsage(out), err
 }
 
-// antigravityArgs builds the argv for an agy run. agy's --print is a STRING flag whose value IS the prompt, so the auto-approve flag must precede it and the prompt be the final token, else --print swallows the next flag.
 func antigravityArgs(opts RunOptions) []string {
 	return []string{
 		"--dangerously-skip-permissions",

@@ -8,19 +8,12 @@ import (
 func TestClarificationComments_FiltersSystemComments(t *testing.T) {
 	issue := Issue{
 		Comments: CommentConnection{Nodes: []Comment{
-			// Linear↔GitHub sync notice — filtered.
 			{Body: "This comment thread is synced to a corresponding GitHub issue."},
-			// A genuine human clarification — kept.
 			{Body: "Use https://getnoctra.dev as the canonical URL.", User: &User{Name: "Ahmad"}},
-			// Noctra's own BLOCKED notice — filtered (else echoed back at the agent).
 			{Body: "🚧 **Noctra needs your input** (attempt 1/3)\n\nThe agent got blocked..."},
-			// Legacy pre-rename (Nightshift) notice — still filtered (ENG-204).
 			{Body: "🚧 **Nightshift needs your input** (attempt 2/3)\n\nThe agent got blocked..."},
-			// Whitespace-only — skipped.
 			{Body: "   "},
-			// Author missing — kept, attributed to "Someone".
 			{Body: "Also add a badge near the title."},
-			// Human reply quoting the bot notice then adding their own — kept, not a system comment.
 			{Body: "> 🚧 **Noctra needs your input**\n\nActually, use the other URL.", User: &User{Name: "Ahmad"}},
 		}},
 	}
@@ -45,17 +38,14 @@ func TestClarificationComments_EmptyWhenNoComments(t *testing.T) {
 func TestProjectRepoDirective(t *testing.T) {
 	cases := []struct {
 		name             string
-		content, desc    string // content = markdown body (primary), desc = short description (fallback)
+		content, desc    string
 		wantRepo, wantBr string
 	}{
 		{"none", "", "Just a normal project summary.", "", ""},
-		// Directive in the markdown body — the case ENG-200 broke (we read description only).
 		{"content repo only", "Autonomous agent.\n\nRepo: ahmadAlMezaal/noctra-site", "", "ahmadAlMezaal/noctra-site", ""},
 		{"content repo + branch", "Repo: owner/site\nBranch: staging", "", "owner/site", "staging"},
 		{"content full https url", "Repo: https://github.com/owner/site", "", "https://github.com/owner/site", ""},
-		// Fallback: directive written in the short description still works.
 		{"description fallback", "", "Repo: owner/x", "owner/x", ""},
-		// content takes precedence over description.
 		{"content beats description", "Repo: owner/from-content", "Repo: owner/from-desc", "owner/from-content", ""},
 		{"branch alone ignored", "Branch: main\nNo repo here.", "", "", ""},
 		{"case-insensitive + spaces", "repo:   owner/x  \nBRANCH:  dev ", "", "owner/x", "dev"},
@@ -89,13 +79,10 @@ func TestBackendLabel(t *testing.T) {
 		{"agent:codex", []Label{{Name: "agent:codex"}}, "codex"},
 		{"agent:claude", []Label{{Name: "priority"}, {Name: "agent:claude"}}, "claude"},
 		{"agent:copilot", []Label{{Name: "agent:copilot"}}, "copilot"},
-		// Case-insensitive + trimmed.
 		{"Agent:Codex", []Label{{Name: "Agent:Codex"}}, "codex"},
 		{"spaces", []Label{{Name: " agent: claude "}}, "claude"},
-		// Empty suffix ignored.
 		{"agent: (empty)", []Label{{Name: "agent:"}}, ""},
 		{"agent: (spaces)", []Label{{Name: "agent:   "}}, ""},
-		// First match wins.
 		{"first wins", []Label{{Name: "agent:codex"}, {Name: "agent:claude"}}, "codex"},
 	}
 	for _, c := range cases {
@@ -154,7 +141,6 @@ func TestIsApprovalComment(t *testing.T) {
 		{"👍", true},
 		{":thumbsup:", true},
 		{":+1:", true},
-		// Non-approval comments.
 		{"", false},
 		{"looks good but needs changes", false},
 		{"go ahead and fix the bug too", false},

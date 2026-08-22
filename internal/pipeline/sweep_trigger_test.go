@@ -16,8 +16,6 @@ func newTriggerPipeline() *Pipeline {
 	}
 }
 
-// TestTriggerSweep_QueuesOnce accepts the first request and rejects a second while one is pending,
-// so a repeated /sweep can't stack up cycles the loop will run back to back.
 func TestTriggerSweep_QueuesOnce(t *testing.T) {
 	p := newTriggerPipeline()
 
@@ -33,13 +31,11 @@ func TestTriggerSweep_QueuesOnce(t *testing.T) {
 		t.Errorf("queued options: got %+v", got)
 	}
 
-	// Once drained, a new request is accepted again.
 	if err := p.TriggerSweep(sweep.PlanOptions{}); err != nil {
 		t.Fatalf("trigger after drain: %v", err)
 	}
 }
 
-// TestTriggerSweep_DisabledSweeps must not block or panic when the scheduler was never built.
 func TestTriggerSweep_DisabledSweeps(t *testing.T) {
 	p := &Pipeline{sweepNow: make(chan sweep.PlanOptions, 1)}
 	err := p.TriggerSweep(sweep.PlanOptions{})
@@ -62,8 +58,6 @@ func triggerPipelineWithTasks(names ...string) *Pipeline {
 	}
 }
 
-// TestHandleSweep_ClassifiesBareTokens: a token matching the catalog is a task filter, anything else
-// is a repo filter — that's what makes "/sweep lint-cleanup trade-mate" work without flags.
 func TestHandleSweep_ClassifiesBareTokens(t *testing.T) {
 	p := triggerPipelineWithTasks("lint-cleanup", "dead-code")
 
@@ -95,7 +89,6 @@ func TestHandleSweep_Force(t *testing.T) {
 	}
 }
 
-// TestHandleSweep_DisabledSweeps points the user at the setting rather than failing silently.
 func TestHandleSweep_DisabledSweeps(t *testing.T) {
 	p := &Pipeline{sweepNow: make(chan sweep.PlanOptions, 1)}
 	if reply := p.handleSweep(context.Background(), ""); !strings.Contains(reply, "SWEEP_ENABLED") {

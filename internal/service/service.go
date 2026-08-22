@@ -1,5 +1,3 @@
-// Package service installs Noctra as a systemd --user service, writing a unit pointing at the
-// installed binary and baking in the install-time PATH so the service finds the same git/gh/agent CLIs.
 package service
 
 import (
@@ -11,7 +9,6 @@ import (
 	"strings"
 )
 
-// unitFile renders the systemd --user unit (pure, for testing); exePath is the symlink-resolved binary, pathEnv the PATH to inherit.
 func unitFile(exePath, pathEnv string) string {
 	return fmt.Sprintf(`[Unit]
 Description=Noctra — autonomous Linear→PR agent
@@ -30,7 +27,6 @@ WantedBy=default.target
 `, exePath, pathEnv)
 }
 
-// unitPath returns ~/.config/systemd/user/noctra.service.
 func unitPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -39,7 +35,6 @@ func unitPath() (string, error) {
 	return filepath.Join(home, ".config", "systemd", "user", "noctra.service"), nil
 }
 
-// resolveExe returns the symlink-resolved path to the running executable.
 func resolveExe() (string, error) {
 	exe, err := os.Executable()
 	if err != nil {
@@ -51,8 +46,6 @@ func resolveExe() (string, error) {
 	return exe, nil
 }
 
-// Install writes the systemd --user unit and reloads the daemon; refuses an existing unit unless force.
-// When start is true it also enables/starts the service and lingering (best-effort); a non-systemd host errors.
 func Install(force, start bool) error {
 	sctl, err := exec.LookPath("systemctl")
 	if err != nil {
@@ -94,7 +87,6 @@ func Install(force, start bool) error {
 		} else {
 			fmt.Println("✓ Enabled and started noctra.service")
 		}
-		// Lingering keeps the user service running after logout/reboot; prefer user.Current() (reliable in systemd/cron) over $USER.
 		if loginctl, lerr := exec.LookPath("loginctl"); lerr == nil {
 			username := os.Getenv("USER")
 			if u, uerr := user.Current(); uerr == nil {
@@ -114,8 +106,6 @@ func Install(force, start bool) error {
 	return nil
 }
 
-// PurgePaths returns the default ~/.noctra* locations `uninstall --purge` removes (config dir, clone cache, worktrees, PR-cursor store).
-// These mirror internal/config's home-relative defaults; custom-path installs must be removed by hand.
 func PurgePaths() ([]string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -129,8 +119,6 @@ func PurgePaths() ([]string, error) {
 	}, nil
 }
 
-// installedBinaryPath parses ExecStart from the unit so uninstall removes the service's binary, not the invoking one;
-// returns "" when the unit is absent or unparseable, so the caller falls back to the running executable.
 func installedBinaryPath() string {
 	dest, err := unitPath()
 	if err != nil {
@@ -142,7 +130,6 @@ func installedBinaryPath() string {
 	}
 	for _, line := range strings.Split(string(content), "\n") {
 		if v := strings.TrimPrefix(strings.TrimSpace(line), "ExecStart="); v != strings.TrimSpace(line) {
-			// ExecStart is "<binary> run" — take the first field.
 			if fields := strings.Fields(v); len(fields) > 0 {
 				return fields[0]
 			}
@@ -151,17 +138,12 @@ func installedBinaryPath() string {
 	return ""
 }
 
-// Uninstall reverses Install: stop/disable/remove the unit, reload, and delete the binary; purge also removes state (PurgePaths).
-// It is lenient — missing systemctl or an already-absent unit/binary warns, not fails — and does no prompting (caller confirms purge).
 func Uninstall(purge bool) error {
-	// Resolve the binary from ExecStart before removing the unit; fall back to the running exe if there's no unit.
 	binPath := installedBinaryPath()
 
-	// Service teardown — best-effort, skipped without systemd.
 	if sctl, err := exec.LookPath("systemctl"); err != nil {
 		fmt.Println("systemctl not found — no systemd service to remove (skipping).")
 	} else {
-		// stop/disable are best-effort: the unit may already be stopped/absent.
 		_ = exec.Command(sctl, "--user", "stop", "noctra.service").Run()
 		_ = exec.Command(sctl, "--user", "disable", "noctra.service").Run()
 		if dest, err := unitPath(); err == nil {
@@ -183,7 +165,7 @@ func Uninstall(purge bool) error {
 		}
 		for _, p := range paths {
 			if _, err := os.Stat(p); os.IsNotExist(err) {
-				continue // never created — don't claim we removed it
+				continue
 			}
 			if err := os.RemoveAll(p); err != nil {
 				fmt.Fprintf(os.Stderr, "⚠️  could not remove %s: %v\n", p, err)
@@ -194,7 +176,6 @@ func Uninstall(purge bool) error {
 		fmt.Println("  (custom REPOS_BASE / WORKTREE_BASE / STATE_DB / STATE_FILE / LOG_DIR paths, if any, were not touched — remove them manually.)")
 	}
 
-	// Remove the binary last: once stopped, deleting the running exe is safe on Unix (unlinked, not truncated).
 	if binPath == "" {
 		if exe, err := resolveExe(); err == nil {
 			binPath = exe

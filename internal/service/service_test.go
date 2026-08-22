@@ -27,12 +27,10 @@ func TestInstalledBinaryPath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	// No unit yet → empty (caller falls back to the running exe).
 	if got := installedBinaryPath(); got != "" {
 		t.Errorf("installedBinaryPath with no unit = %q, want \"\"", got)
 	}
 
-	// Write a unit and confirm the ExecStart binary (sans the "run" arg) is parsed.
 	dest, err := unitPath()
 	if err != nil {
 		t.Fatal(err)

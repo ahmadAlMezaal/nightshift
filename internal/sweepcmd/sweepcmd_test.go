@@ -63,7 +63,6 @@ func TestParseArgs(t *testing.T) {
 	}
 }
 
-// TestDescribe covers the confirmation line users read back before the sweep starts.
 func TestDescribe(t *testing.T) {
 	if got := describe(request{}); got != "all eligible tasks" {
 		t.Errorf("bare: got %q", got)

@@ -5,48 +5,34 @@ import (
 	"strings"
 )
 
-// FeedbackItem is one piece of feedback rendered into a fix prompt (a comment or review body). Stringly-typed so agent needn't depend on internal/github or internal/watch.
 type FeedbackItem struct {
-	// Kind is "comment" or "review" — controls the section heading.
-	Kind string
-	// Author is the GitHub login that posted it.
+	Kind   string
 	Author string
-	// Body is the markdown body.
-	Body string
-	// State is "" for comments; APPROVED/CHANGES_REQUESTED/COMMENTED for reviews.
-	State string
-	// URL points back to the comment on GitHub (optional, comments only).
-	URL string
-	// Path / Line locate an inline review comment in the diff (empty otherwise).
-	Path string
-	Line int
+	Body   string
+	State  string
+	URL    string
+	Path   string
+	Line   int
 }
 
-// CIItem is one failing CI check rendered into a fix prompt.
 type CIItem struct {
-	// Name is the check / workflow name (e.g. "build", "lint").
 	Name string
-	// URL links to the check run (optional).
-	URL string
-	// Logs is the truncated failed-step log tail (may be empty; the agent can reproduce locally).
+	URL  string
 	Logs string
 }
 
-// FixPromptInput is everything BuildFixPrompt needs to assemble a prompt the agent can act on without re-reading the PR.
 type FixPromptInput struct {
-	Identifier  string
-	Title       string
-	Description string
-	PRNumber    int
-	PRURL       string
-	Feedback    []FeedbackItem
-	CI          []CIItem
-	RepoLessons string // per-repo lessons
-	// PriorReasoning is the agent's summary from the previous re-engagement, so it doesn't re-litigate settled feedback.
+	Identifier     string
+	Title          string
+	Description    string
+	PRNumber       int
+	PRURL          string
+	Feedback       []FeedbackItem
+	CI             []CIItem
+	RepoLessons    string
 	PriorReasoning string
 }
 
-// BuildFixPrompt renders a fix prompt for actionable PR feedback/CI, instructing the agent to address ONLY the listed items — a tight follow-up commit, not a do-over.
 func BuildFixPrompt(in FixPromptInput) string {
 	desc := in.Description
 	if desc == "" {

@@ -342,8 +342,6 @@ func TestUpdate_ReturnsReadError(t *testing.T) {
 	}
 }
 
-// ── Plan state tests (ENG-221) ──────────────────────────────────────────────
-
 func TestGetPlan_UnknownReturnsZero(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -525,8 +523,6 @@ func TestLessons(t *testing.T) {
 	}
 }
 
-// ── Run history + usage event tests (ENG-280) ──────────────────────────────
-
 func TestInsertAndListRunHistory(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -680,7 +676,6 @@ func TestRecordUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify rows directly (no public read API for usage_events yet — P4).
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var count int
@@ -756,8 +751,6 @@ func TestInsertRunHistory_SurvivesReopen(t *testing.T) {
 	}
 }
 
-// ── ListUsageEvents tests (ENG-277) ─────────────────────────────────────────
-
 func TestListUsageEvents(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))
 	if err != nil {
@@ -816,8 +809,6 @@ func TestListUsageEvents_Empty(t *testing.T) {
 		t.Fatalf("expected empty, got %d", len(got))
 	}
 }
-
-// ── AllSweepStates tests (ENG-277) ──────────────────────────────────────────
 
 func TestAllSweepStates(t *testing.T) {
 	s, err := Open(filepath.Join(t.TempDir(), "state.db"))

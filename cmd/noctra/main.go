@@ -1,26 +1,3 @@
-// Command noctra is the autonomous Linear→PR agent.
-//
-// Subcommands:
-//
-//	noctra            start the poll loop (default)
-//	noctra setup      interactive .env wizard
-//	noctra config     read or edit .env settings (path, list, edit, get, set)
-//	noctra repos      add a repository or list the cloned ones (add, list)
-//	noctra sweep      run a maintenance sweep now, without waiting for the schedule
-//	noctra cleanup    clean up stale branches and worktrees
-//	noctra cleanup --force
-//	noctra doctor     preflight dependency and config checks
-//	noctra update     self-update to the latest release (--restart)
-//	noctra install-service  install the systemd --user unit (--start, --force)
-//	noctra uninstall  remove the service + binary (--purge also removes state)
-//	noctra logs       tail the service logs (-f to follow)
-//	noctra start      start the systemd --user service
-//	noctra stop       stop the systemd --user service
-//	noctra restart    restart the systemd --user service
-//	noctra status     show service status + installed version
-//	noctra completion print a bash/zsh completion script
-//	noctra version
-//	noctra --help
 package main
 
 import (
@@ -48,17 +25,14 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/sweepcmd"
 )
 
-// version defaults to a dev marker; release builds stamp the tag via -ldflags "-X main.version=...".
 var version = "0.4.0-dev"
 
-// ANSI escape codes for the startup banner.
 const (
 	ansiAmber = "\033[1;33m"
 	ansiDim   = "\033[2m"
 	ansiReset = "\033[0m"
 )
 
-// bannerArt is the figlet "standard" rendering of "Noctra" (non-raw string since the font uses backticks).
 var bannerArt = "" +
 	" _   _            _             \n" +
 	"| \\ | | ___   ___| |_ _ __ __ _ \n" +
@@ -147,12 +121,10 @@ func realMain() error {
 	case "uninstall":
 		purge, force, help, err := parseUninstallArgs(os.Args[2:])
 		if err != nil {
-			// Typo'd flag: refuse rather than fall through to the destructive uninstall.
 			fmt.Fprint(os.Stderr, uninstallUsage)
 			return err
 		}
 		if help {
-			// Help must never trigger the destructive action.
 			fmt.Print(uninstallUsage)
 			return nil
 		}
@@ -200,7 +172,6 @@ func realMain() error {
 	}
 }
 
-// printBanner prints the styled ASCII banner + version; skipped when stdout isn't a TTY so service logs stay clean.
 func printBanner() {
 	if !isCharDevice(os.Stdout) {
 		return
@@ -209,7 +180,6 @@ func printBanner() {
 	fmt.Printf("  %s🌙 v%s%s — Autonomous Linear → PR agent\n\n", ansiDim, version, ansiReset)
 }
 
-// printUpdateNotice hints when a newer release exists; best-effort, silent on failure/dev builds, short timeout so it stays fast offline.
 func printUpdateNotice() {
 	if version == "" || strings.Contains(version, "dev") || strings.Contains(version, "snapshot") {
 		return
@@ -223,7 +193,6 @@ func printUpdateNotice() {
 	fmt.Printf("\n🆙 A newer version is available: %s (run `noctra update` to upgrade)\n", latest)
 }
 
-// parseUninstallArgs parses the destructive uninstall flags; an unrecognized flag errors so a typo never falls through. Pure, so it's unit-testable.
 func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
 	for _, a := range args {
 		switch a {
@@ -240,7 +209,6 @@ func parseUninstallArgs(args []string) (purge, force, help bool, err error) {
 	return purge, force, help, nil
 }
 
-// uninstallUsage is the uninstall help text, shown on --help and on an unrecognized flag.
 const uninstallUsage = `Usage: noctra uninstall [--purge] [--force|-y]
 
 Remove the systemd --user service and the installed binary. State is kept
@@ -253,7 +221,6 @@ unless --purge is given.
   --help, -h    show this message
 `
 
-// printUsage prints the CLI usage/help screen.
 func printUsage() {
 	fmt.Println("Usage: noctra [command]")
 	fmt.Println()
@@ -284,7 +251,6 @@ func printUsage() {
 	fmt.Printf("Config dir: %s (override by running from a checkout with .env)\n", config.DefaultConfigDir())
 }
 
-// resolveScriptDir picks Noctra's home (.env + logs/): cwd when it looks like a checkout (for `go run`), else ~/.noctra/.
 func resolveScriptDir() (string, error) {
 	if cwd, err := os.Getwd(); err == nil {
 		for _, marker := range []string{".env", ".env.example", "go.mod"} {
@@ -331,19 +297,16 @@ func runCleanup(scriptDir string, force bool) error {
 	return cleanup.Run(ctx, cfg, force)
 }
 
-// logsArgs returns the journalctl arguments for `noctra logs`; pure, so it's unit-testable.
 func logsArgs(follow bool) []string {
 	args := []string{"--user-unit=noctra.service"}
 	if follow {
 		args = append(args, "-f")
 	} else {
-		// --no-pager dumps to stdout (newest last) instead of opening the pager at the top.
 		args = append(args, "--no-pager", "-n", "200")
 	}
 	return args
 }
 
-// runLogs tails the service logs via journalctl; on a non-systemd host it points at where logs live instead of failing.
 func runLogs(scriptDir string, follow bool) error {
 	jctl, err := exec.LookPath("journalctl")
 	if err != nil {
@@ -361,7 +324,6 @@ func runLogs(scriptDir string, follow bool) error {
 	return cmd.Run()
 }
 
-// runService wraps `systemctl --user <verb> noctra.service` for start/stop/restart/status; on a non-systemd host it hints instead of crashing. status also prints the binary version.
 func runService(verb string) error {
 	sctl, err := exec.LookPath("systemctl")
 	if err != nil {
@@ -379,7 +341,6 @@ func runService(verb string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin
-	// `systemctl status` exits non-zero for inactive units — informational, not a failure.
 	runErr := cmd.Run()
 	if verb == "status" {
 		fmt.Println("noctra", version)
@@ -388,13 +349,11 @@ func runService(verb string) error {
 	return runErr
 }
 
-// subcommands is the completion list, kept in one place so help, the completion script, and tests stay in sync.
 var subcommands = []string{
 	"run", "setup", "dashboard", "config", "repos", "sweep", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 
-// completionScript returns a static bash/zsh completion script for the subcommand list; pure, so it's unit-testable. Unknown shell errors.
 func completionScript(shell string) (string, error) {
 	cmds := strings.Join(subcommands, " ")
 	switch shell {
@@ -421,7 +380,6 @@ func completionScript(shell string) (string, error) {
 	}
 }
 
-// ensureValidConfig loads + validates config; on failure it offers the setup wizard inline if interactive, else returns the validation error.
 func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	cfg, err := config.Load(scriptDir)
 	if err != nil {
@@ -461,7 +419,6 @@ func ensureValidConfig(scriptDir string) (*config.Config, error) {
 	return cfg, nil
 }
 
-// requireCLIs fails fast if any needed external command (git/gh + the backend CLI) is off PATH, surfacing all missing ones at once.
 func requireCLIs(cfg *config.Config) error {
 	missing := cfg.CheckCLIs()
 	if len(missing) == 0 {
@@ -471,7 +428,6 @@ func requireCLIs(cfg *config.Config) error {
 		strings.Join(missing, ", "))
 }
 
-// isInteractive reports whether a user is at a terminal (gates auto-launching the wizard). Requires BOTH stdin and stdout to be char devices, so `< /dev/null` and systemd's journald-socket stdout count as non-interactive.
 func isInteractive() bool {
 	return isCharDevice(os.Stdin) && isCharDevice(os.Stdout)
 }

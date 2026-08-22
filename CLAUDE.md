@@ -168,9 +168,21 @@ DEBUG: pwd = /path
 
 ## Code style
 
-Keep comments minimal: explain *why* for a non-obvious decision, never narrate *what* the code already says. Prefer a self-explanatory name over a comment. Keep doc comments on exported symbols (Go convention); drop inline comments that just restate the next line.
+### ⚠️ Zero comments
 
-⚠️ **Do NOT add redundant comments.** This applies to humans AND any agent (Claude/Codex/Copilot) working in this repo. A comment that paraphrases the line below it, restates a clear variable/function name, or explains an obvious assignment is noise — delete it. Only write a comment when the code cannot explain *why* on its own (a non-obvious trade-off, a workaround, a subtle invariant). When in doubt, leave it out.
+**This codebase contains no comments. Do not add any.** This applies to humans AND any agent (Claude/Codex/Copilot/Antigravity) working in this repo — including doc comments on exported symbols, package doc comments, `TODO`/`FIXME` notes, section banners, and end-of-line asides. If you are editing a file and feel the urge to explain something, that urge is a signal to rename a symbol or extract a function, not to type `//`.
+
+The **only** permitted `//` lines are compiler and tooling directives, which are not comments in any meaningful sense:
+
+- `//go:embed`, `//go:build`, `//go:generate`
+- `//nolint:…`
+- `// Code generated … DO NOT EDIT.`
+
+Enforced by `make check-comments` (`scripts/check-comments.sh`), which runs in CI and fails on any non-directive comment.
+
+**Where the *why* lives instead:** this file for architecture and cross-cutting behaviour, and [`.claude/skills/architecture`](.claude/skills/architecture/SKILL.md) Invariant 7 for the file-level facts that are non-obvious from the code — lock ordering, cursor semantics, flag quirks, encoding traps. When you make a change whose reasoning is not evident from the diff, add a row there. Do not put it in the source.
+
+Names and structure carry the *what*; the docs carry the *why*.
 
 ## Dashboard frontend (Preact + esbuild)
 

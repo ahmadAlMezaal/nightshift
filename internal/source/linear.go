@@ -7,7 +7,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 )
 
-// LinearConfig contains the Linear-specific settings needed by the adapter.
 type LinearConfig struct {
 	TeamKey          string
 	TriggerMode      string
@@ -18,7 +17,6 @@ type LinearConfig struct {
 	PlanConfirmLabel string
 }
 
-// LinearSource adapts the existing Linear client to TicketSource.
 type LinearSource struct {
 	client             *linear.Client
 	cfg                LinearConfig
@@ -148,7 +146,6 @@ func (s *LinearSource) MarkReady(ctx context.Context, ticket Ticket, info ReadyI
 
 func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
 	var firstErr error
-	// In label mode the trigger label (not the state) re-fetches a ticket, so remove it or the no-op loops back into dispatch.
 	if s.cfg.TriggerMode == "label" && s.triggerLabelID != "" {
 		if err := s.client.RemoveLabel(ctx, ticket.ID, s.triggerLabelID); err != nil {
 			firstErr = err
@@ -159,13 +156,11 @@ func (s *LinearSource) MarkDone(ctx context.Context, ticket Ticket) error {
 			firstErr = err
 		}
 	} else if s.cfg.TriggerMode != "label" {
-		// State mode needs the Done transition to leave the trigger column.
 		return fmt.Errorf("no Done state resolved (check DONE_STATE)")
 	}
 	return firstErr
 }
 
-// Archive archives a ticket, dropping the trigger label first in label mode so a later restore doesn't re-dispatch it.
 func (s *LinearSource) Archive(ctx context.Context, ticket Ticket) error {
 	var firstErr error
 	if s.cfg.TriggerMode == "label" && s.triggerLabelID != "" {

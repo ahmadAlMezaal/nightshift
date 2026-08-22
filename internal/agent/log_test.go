@@ -12,7 +12,6 @@ func TestOffsetBefore_AndReadAfter_OnlyExposesNewContent(t *testing.T) {
 	dir := t.TempDir()
 	logFile := filepath.Join(dir, "log.txt")
 
-	// First attempt's output
 	first := "--- Attempt 2024-01-01T00:00:00 ---\nDEBUG: pwd = /repo\nBLOCKED: Wrong repository\n"
 	if err := os.WriteFile(logFile, []byte(first), 0o600); err != nil {
 		t.Fatal(err)
@@ -20,7 +19,6 @@ func TestOffsetBefore_AndReadAfter_OnlyExposesNewContent(t *testing.T) {
 
 	offset := OffsetBefore(logFile)
 
-	// Second attempt appends — clean run, no BLOCKED.
 	more := "--- Attempt 2024-01-01T01:00:00 ---\nDEBUG: pwd = /repo\nAll done.\n"
 	f, _ := os.OpenFile(logFile, os.O_APPEND|os.O_WRONLY, 0o600)
 	_, _ = f.WriteString(more)
@@ -54,8 +52,6 @@ func TestNoChangesLine_DetectsReasonAndTrims(t *testing.T) {
 }
 
 func TestNoChangesLine_UsesLastMatch(t *testing.T) {
-	// An echoed prompt instruction precedes the agent's real answer; the last
-	// match must win so the echo doesn't decide the outcome.
 	out := "say NO_CHANGES: <reason> and stop\n...work...\nNO_CHANGES: Already done\n"
 	if got := NoChangesLine(out); got != "Already done" {
 		t.Errorf("NoChangesLine: got %q, want last match %q", got, "Already done")
@@ -87,8 +83,6 @@ Added a new feature.
 }
 
 func TestExtractSummary_PrefersMarkerDelimitedSummary(t *testing.T) {
-	// Simulates a Codex run: the CLI streams the diff and a usage footer around
-	// the marker-wrapped summary. Only the marked content should survive.
 	log := "--- Attempt 2024-01-01T01:00:00 ---\n" +
 		"DEBUG: pwd = /repo\n" +
 		"+func Foo() {}\n" +
@@ -112,8 +106,6 @@ func TestExtractSummary_PrefersMarkerDelimitedSummary(t *testing.T) {
 }
 
 func TestExtractSummary_UsesLastMarkerPair(t *testing.T) {
-	// The agent may echo the instruction (including the markers) earlier in its
-	// output; the actual summary is the LAST pair.
 	log := SummaryStartMarker + "\n<your summary here>\n" + SummaryEndMarker + "\n" +
 		"...work...\n" +
 		SummaryStartMarker + "\nThe real summary.\n" + SummaryEndMarker + "\n"
@@ -123,8 +115,6 @@ func TestExtractSummary_UsesLastMarkerPair(t *testing.T) {
 }
 
 func TestExtractSummary_FallbackStripsUsageFooter(t *testing.T) {
-	// No markers (older log / non-compliant agent): the heuristic still drops a
-	// trailing Codex-style usage footer.
 	log := "--- Attempt 2024-01-01T01:00:00 ---\n" +
 		"DEBUG: pwd = /repo\n" +
 		"Implemented the feature.\n" +
@@ -205,23 +195,19 @@ func TestFailureDetail(t *testing.T) {
 		t.Errorf("expected the 401 line, got %q", got)
 	}
 
-	// Only header/DEBUG lines → fall back to the process error.
 	onlyNoise := "--- Attempt 2026-07-01T01:10:31+01:00 ---\nDEBUG: pwd = /x\nDEBUG: branch = y\n"
 	if got := FailureDetail(onlyNoise, errors.New("exit status 1")); got != "exit status 1" {
 		t.Errorf("expected fallback to runErr, got %q", got)
 	}
 
-	// Empty output and nil error → empty.
 	if got := FailureDetail("", nil); got != "" {
 		t.Errorf("expected empty, got %q", got)
 	}
 
-	// Credential-shaped tokens are redacted.
 	if got := FailureDetail("auth failed with key sk-ant-abc123def456ghi789 rejected", nil); strings.Contains(got, "sk-ant-abc123") {
 		t.Errorf("expected redaction, got %q", got)
 	}
 
-	// Long lines are capped.
 	long := strings.Repeat("x", 500)
 	if got := FailureDetail(long, nil); len([]rune(got)) > 301 {
 		t.Errorf("expected cap ~300, got len %d", len([]rune(got)))

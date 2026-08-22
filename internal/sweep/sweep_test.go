@@ -10,7 +10,6 @@ func TestCatalog_ContainsRegisteredTasks(t *testing.T) {
 		t.Fatalf("expected at least 2 registered tasks, got %d", len(tasks))
 	}
 
-	// Verify the two core tasks exist.
 	names := map[string]bool{}
 	for _, task := range tasks {
 		names[task.Name] = true
@@ -64,7 +63,6 @@ func TestCatalog_TaskFields(t *testing.T) {
 		if task.Prompt == nil {
 			t.Errorf("task %q has nil Prompt function", task.Name)
 		}
-		// Verify prompt can be called without panic.
 		if task.Prompt != nil {
 			p := task.Prompt("/tmp/test-repo")
 			if p == "" {
@@ -75,7 +73,7 @@ func TestCatalog_TaskFields(t *testing.T) {
 }
 
 func TestCatalog_UniqueBranchSuffixes(t *testing.T) {
-	seen := map[string]string{} // suffix → task name
+	seen := map[string]string{}
 	for _, task := range Catalog() {
 		if prev, ok := seen[task.BranchSuffix]; ok {
 			t.Errorf("duplicate BranchSuffix %q: used by both %q and %q",

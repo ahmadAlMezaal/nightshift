@@ -16,7 +16,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// needsPlanConfirm reports whether a ticket uses the plan-confirm flow — global PLAN_CONFIRM or the plan-confirm label.
 func (p *Pipeline) needsPlanConfirm(issue source.Ticket) bool {
 	if p.store == nil {
 		return false
@@ -30,7 +29,6 @@ func (p *Pipeline) needsPlanConfirm(issue source.Ticket) bool {
 	return false
 }
 
-// hasPendingPlan reports whether a ticket has a plan awaiting approval; caller must NOT hold p.mu.
 func (p *Pipeline) hasPendingPlan(identifier string) bool {
 	if p.store == nil {
 		return false
@@ -39,7 +37,6 @@ func (p *Pipeline) hasPendingPlan(identifier string) bool {
 	return ps.Plan != ""
 }
 
-// pollPlanApprovals dispatches pending plans that gained a human approval comment; decrements available per dispatch.
 func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, available *int) {
 	if p.store == nil {
 		return
@@ -77,7 +74,6 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 
 		slog.Info("plan approved — resuming implementation", "id", identifier)
 
-		// Fetch the full ticket for the implementation prompt's fields.
 		fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		ticketSrc := p.sourceByName(ps.Source)
 		issue, err := ticketSrc.FetchByIdentifier(fctx, identifier)
@@ -87,7 +83,6 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 			continue
 		}
 
-		// Re-fetch comments — GetIssueByIdentifier doesn't include them.
 		cctx, ccancel := context.WithTimeout(ctx, 30*time.Second)
 		comments, cerr := ticketSrc.FetchComments(cctx, issue)
 		ccancel()
@@ -108,14 +103,12 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 		p.mu.Unlock()
 		p.publishDashboardChange()
 
-		// Remove a per-ticket plan-confirm label.
 		if issue.HasLabel(p.cfg.PlanConfirmLabel) {
 			if err := ticketSrc.RemovePlanLabel(ctx, issue); err != nil {
 				slog.Warn("could not remove plan-confirm label", "id", identifier, "err", err)
 			}
 		}
 
-		// Delete the plan from state — approved and committed to dispatch.
 		plan := ps.Plan
 		if err := p.store.DeletePlan(identifier); err != nil {
 			slog.Warn("could not delete plan state", "id", identifier, "err", err)
@@ -132,7 +125,6 @@ func (p *Pipeline) pollPlanApprovals(ctx context.Context, wg *sync.WaitGroup, av
 	}
 }
 
-// checkPlanApproval reports whether a non-system comment posted after the plan constitutes approval.
 func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (bool, error) {
 	fctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -144,7 +136,6 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 		return false, err
 	}
 
-	// Iterate newest-first to find the latest plan comment and whether an approval followed it — avoids stale approvals on re-planned tickets.
 	hasApprovalAfterPlan := false
 	for i := len(comments) - 1; i >= 0; i-- {
 		body := comments[i].Body
@@ -161,13 +152,11 @@ func (p *Pipeline) checkPlanApproval(ctx context.Context, ps state.PlanState) (b
 	return false, nil
 }
 
-// isPlanComment reports whether a comment body is Noctra's plan-confirm comment.
 func isPlanComment(body string) bool {
 	return len(body) >= len(source.PlanConfirmCommentPrefix) &&
 		body[:len(source.PlanConfirmCommentPrefix)] == source.PlanConfirmCommentPrefix
 }
 
-// processPlanOnly runs a plan-only pass, posts the plan as a comment, and records it as pending; the ticket stays in trigger for the next poll to check approval.
 func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
@@ -185,7 +174,6 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 		logger.Warn("could not write attempt header", "err", err)
 	}
 
-	// Resolve target repo (same logic as process).
 	var (
 		resolved repo.Resolved
 		err      error
@@ -214,7 +202,6 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 		return
 	}
 
-	// Create a worktree so the agent can read the codebase.
 	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {
 		logger.Error("worktree creation failed (plan)", "err", err)
@@ -254,14 +241,13 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 
 	output := agent.ReadAfter(logFile, offset)
 
-	// Record usage from the plan pass (ENG-217).
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "plan", id, "", backend)
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
 	}
 
-	repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id) // plan pass is read-only
+	repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, id)
 
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		p.bumpFailed(id)
@@ -282,7 +268,6 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 
 	plan, ok := agent.ExtractPlan(output)
 	if !ok {
-		// No plan between markers — fall back to the summary.
 		plan = agent.ExtractSummary(output)
 		if plan == "" {
 			attempts := p.bumpFailed(id)
@@ -319,13 +304,11 @@ func (p *Pipeline) processPlanOnly(ctx context.Context, issue source.Ticket) {
 		id, notify.EscapeMarkdown(issue.Title)))
 }
 
-// processWithPlan runs the full implementation with the approved plan as context — like process() but with the plan-aware prompt.
 func (p *Pipeline) processWithPlan(ctx context.Context, issue source.Ticket, plan string) {
 	id := issue.Identifier
 	logger := slog.With("id", id)
 	logger.Info("starting implementation with approved plan", "title", issue.Title)
 
-	// Store the plan so process() reads it and uses the plan-aware prompt.
 	p.mu.Lock()
 	if p.approvedPlans == nil {
 		p.approvedPlans = map[string]string{}

@@ -1,5 +1,3 @@
-// Package selfupdate does in-place binary upgrades: via `gh` it downloads the latest GoReleaser archive
-// for this platform, verifies its SHA-256, and atomically swaps the binary; logs and state are untouched.
 package selfupdate
 
 import (
@@ -22,7 +20,6 @@ import (
 
 const repo = "ahmadAlMezaal/noctra"
 
-// Latest returns the latest GitHub release tag (e.g. "v0.1.0") via `gh release view`.
 func Latest(ctx context.Context) (string, error) {
 	cmd := exec.CommandContext(ctx, "gh", "release", "view",
 		"--repo", repo, "--json", "tagName")
@@ -45,14 +42,11 @@ func Latest(ctx context.Context) (string, error) {
 	return res.TagName, nil
 }
 
-// IsNewer reports whether latest is strictly newer than current (compared as major.minor.patch);
-// false when current is empty/"dev"/a "-dev"/"-snapshot" build, so dev builds never advertise updates.
 func IsNewer(latest, current string) bool {
 	current = strings.TrimSpace(current)
 	if current == "" || current == "dev" {
 		return false
 	}
-	// Dev/snapshot builds can't be compared to a release tag — don't nag.
 	if i := strings.IndexAny(current, "-+"); i >= 0 {
 		if suf := current[i:]; strings.Contains(suf, "dev") || strings.Contains(suf, "snapshot") {
 			return false
@@ -71,7 +65,6 @@ func IsNewer(latest, current string) bool {
 	return false
 }
 
-// parseSemver extracts [major, minor, patch] from a version, tolerating a leading "v" and a suffix; missing parts default to 0.
 func parseSemver(v string) ([3]int, bool) {
 	var out [3]int
 	v = strings.TrimSpace(v)
@@ -96,22 +89,17 @@ func parseSemver(v string) ([3]int, bool) {
 	return out, true
 }
 
-// assetName builds the GoReleaser archive filename, matching the name_template in .goreleaser.yaml
-// (tag's leading "v" stripped; GOARM=7 → "armv7" suffix, amd64/arm64 have no Arm component):
-//
-//	{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}.tar.gz
 func assetName(version, goos, goarch string) string {
 	ver := strings.TrimPrefix(version, "v")
 	arch := goarch
 	if goarch == "arm" {
-		arch = "armv7" // GOARM is fixed to 7 in .goreleaser.yaml.
+		arch = "armv7"
 	}
 	return fmt.Sprintf("noctra_%s_%s_%s.tar.gz", ver, goos, arch)
 }
 
 const checksumsName = "checksums.txt"
 
-// Update performs the full self-update flow. See package doc.
 func Update(ctx context.Context, current string, restart bool) error {
 	tag, err := Latest(ctx)
 	if err != nil {
@@ -166,7 +154,6 @@ func Update(ctx context.Context, current string, restart bool) error {
 		rs.Stdout = os.Stdout
 		rs.Stderr = os.Stderr
 		if err := rs.Run(); err != nil {
-			// Best-effort: not every host runs under systemd.
 			fmt.Fprintf(os.Stderr, "⚠️  could not restart service automatically (%v) — restart it manually\n", err)
 		}
 	}
@@ -180,7 +167,6 @@ func displayVersion(v string) string {
 	return v
 }
 
-// verifyChecksum confirms the archive's SHA-256 matches assetName's entry in checksums.txt ("<hex>  <filename>" lines).
 func verifyChecksum(archivePath, checksumsPath, assetName string) error {
 	data, err := os.ReadFile(checksumsPath)
 	if err != nil {
@@ -214,7 +200,6 @@ func verifyChecksum(archivePath, checksumsPath, assetName string) error {
 	return nil
 }
 
-// extractBinary reads the `noctra` binary out of the gzip'd tar archive.
 func extractBinary(archivePath string) ([]byte, error) {
 	f, err := os.Open(archivePath)
 	if err != nil {
@@ -248,7 +233,6 @@ func extractBinary(archivePath string) ([]byte, error) {
 	return nil, errors.New("noctra binary not found in archive")
 }
 
-// installBinary atomically swaps the new binary over the running exe: write to a same-dir temp (keeps os.Rename atomic), chmod 0755, rename.
 func installBinary(data []byte) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -289,7 +273,6 @@ func installBinary(data []byte) error {
 	return nil
 }
 
-// permHint wraps permission-denied errors with an actionable message.
 func permHint(err error, path string) error {
 	if errors.Is(err, os.ErrPermission) {
 		return fmt.Errorf("binary not writable at %s — reinstall or re-run with sudo: %w", path, err)

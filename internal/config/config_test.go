@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// noctraEnvKeys are every env var Noctra reads. Tests clear them all
-// up front so the dev's shell environment (direnv, exported .env, etc.) can't
-// leak through and quietly satisfy a check the test means to fail.
 var noctraEnvKeys = []string{
 	"TICKET_SOURCE", "TICKET_SOURCES", "GITHUB_ISSUES_REPOS", "GITHUB_TRIGGER_LABEL",
 	"LINEAR_API_KEY", "LINEAR_OAUTH_TOKEN", "LINEAR_TEAM_KEY", "TRIGGER_MODE", "TRIGGER_STATE",
@@ -205,7 +202,6 @@ REPO_PATH="`+initBareRepo(t)+`"
 func TestValidate_OAuthTokenSatisfiesLinearAuth(t *testing.T) {
 	isolateEnv(t)
 
-	// An OAuth token alone (no personal API key) is valid auth.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY=""
 LINEAR_OAUTH_TOKEN="lin_oauth_app_token"`)
@@ -224,7 +220,6 @@ LINEAR_OAUTH_TOKEN="lin_oauth_app_token"`)
 func TestValidate_AllowsDirectiveOnlySetup(t *testing.T) {
 	isolateEnv(t)
 
-	// No REPO_PATH is valid: repos route per-ticket from "Repo:" directives.
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".env"), `LINEAR_API_KEY="lin_xyz"`)
 	cfg, err := Load(dir)
@@ -649,8 +644,6 @@ func TestAllCandidateCLIs_ContainsAllBackends(t *testing.T) {
 	}
 }
 
-// initBareRepo creates a minimal-looking git repo (just a .git directory) so
-// isGitRepo returns true without us shelling out to git in tests.
 func initBareRepo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -664,7 +657,6 @@ func TestMigrateLegacyPaths(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 
-	// Old Nightshift state present; new Noctra counterparts absent.
 	if err := os.MkdirAll(filepath.Join(home, ".nightshift", "logs"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -678,7 +670,6 @@ func TestMigrateLegacyPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A counterpart that ALREADY exists must not be clobbered.
 	if err := os.MkdirAll(filepath.Join(home, ".nightshift-repos"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +682,6 @@ func TestMigrateLegacyPaths(t *testing.T) {
 
 	MigrateLegacyPaths()
 
-	// Migrated: new path exists, old path gone, contents preserved.
 	if b, err := os.ReadFile(filepath.Join(home, ".noctra", ".env")); err != nil || string(b) != "X=1" {
 		t.Errorf("config dir not migrated: %v / %q", err, b)
 	}
@@ -705,7 +695,6 @@ func TestMigrateLegacyPaths(t *testing.T) {
 		t.Errorf("state file not migrated: %v", err)
 	}
 
-	// Not clobbered: existing .noctra-repos kept its content; old left in place.
 	if _, err := os.Stat(filepath.Join(home, ".noctra-repos", "keep")); err != nil {
 		t.Errorf("existing .noctra-repos was clobbered: %v", err)
 	}
@@ -713,7 +702,6 @@ func TestMigrateLegacyPaths(t *testing.T) {
 		t.Errorf("old .nightshift-repos should remain when target exists: %v", err)
 	}
 
-	// Idempotent: a second run is a clean no-op.
 	MigrateLegacyPaths()
 	if b, err := os.ReadFile(filepath.Join(home, ".noctra", ".env")); err != nil || string(b) != "X=1" {
 		t.Errorf("second migration disturbed state: %v / %q", err, b)

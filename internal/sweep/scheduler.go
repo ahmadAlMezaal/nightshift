@@ -11,13 +11,11 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// RepoResolver is the subset of *repo.Resolver the scheduler needs: discover cloned repos, or resolve an explicit one (cloning on demand).
 type RepoResolver interface {
 	AllRepoPaths() []string
 	ResolveDirect(ctx context.Context, ref, branch string) (repo.Resolved, error)
 }
 
-// Scheduler decides when the next sweep fires and which tasks are eligible on which repos; side-effect-free (the pipeline executes).
 type Scheduler struct {
 	store      *state.Store
 	resolver   RepoResolver
@@ -37,7 +35,6 @@ type Scheduler struct {
 	directiveBranch func(context.Context, string) string
 }
 
-// SetDirectiveBranchResolver installs the Linear "Branch:" directive base-branch fallback.
 func (s *Scheduler) SetDirectiveBranchResolver(fn func(context.Context, string) string) {
 	s.directiveBranch = fn
 }
@@ -58,15 +55,13 @@ func NewScheduler(store *state.Store, resolver RepoResolver, tasks []Task, inter
 	}
 }
 
-// Job is one eligible (repo, task) pair ready to be dispatched.
 type Job struct {
 	Task       Task
-	RepoPath   string // local clone path
-	RepoSlug   string // slug for branch/identifier naming
+	RepoPath   string
+	RepoSlug   string
 	MainBranch string
 }
 
-// DueIn returns time until the next sweep (0 if due now). Cron waits for the next matching time; interval fires immediately on startup (lastSweep is zero).
 func (s *Scheduler) DueIn() time.Duration {
 	now := s.now()
 	if s.schedule != nil {
@@ -97,7 +92,6 @@ func (s *Scheduler) intervalDueIn(now time.Time) time.Duration {
 	return s.interval - elapsed
 }
 
-// MarkSwept records that a sweep cycle just completed.
 func (s *Scheduler) MarkSwept() {
 	s.lastSweep = s.now()
 }
@@ -162,20 +156,17 @@ func parseSweepRepoRef(entry string) (ref, branch string) {
 	return entry, ""
 }
 
-// PlanOptions narrows a plan. Zero value = the scheduled sweep: every repo, every task, cooldowns enforced.
 type PlanOptions struct {
-	Tasks          []string // task names to include; empty = all
-	Repos          []string // repo slug substrings to include; empty = all
-	IgnoreCooldown bool     // dispatch even if the per-repo cooldown has not expired
-	Limit          int      // max jobs; <= 0 falls back to the scheduler's maxTasks
+	Tasks          []string
+	Repos          []string
+	IgnoreCooldown bool
+	Limit          int
 }
 
-// Plan returns eligible (repo, task) jobs (≤ maxTasks); a task is eligible once its per-repo cooldown has expired.
 func (s *Scheduler) Plan(ctx context.Context) []Job {
 	return s.PlanWith(ctx, PlanOptions{})
 }
 
-// PlanWith is Plan with manual-trigger filters applied; the scheduled loop calls Plan.
 func (s *Scheduler) PlanWith(ctx context.Context, opts PlanOptions) []Job {
 	targets := s.repoTargets(ctx)
 	if len(targets) == 0 {
@@ -245,8 +236,6 @@ func (s *Scheduler) PlanWith(ctx context.Context, opts PlanOptions) []Job {
 	return jobs
 }
 
-// matchesFilter reports whether name passes a filter list; an empty list matches everything.
-// Entries match case-insensitively as substrings so "trade-mate" selects "ahmadalmezaal-trade-mate".
 func matchesFilter(name string, filters []string) bool {
 	if len(filters) == 0 {
 		return true
@@ -260,7 +249,6 @@ func matchesFilter(name string, filters []string) bool {
 	return false
 }
 
-// TaskNames lists the registered task names, for validating a manual trigger's filters.
 func (s *Scheduler) TaskNames() []string {
 	names := make([]string, 0, len(s.tasks))
 	for _, t := range s.tasks {
@@ -269,7 +257,6 @@ func (s *Scheduler) TaskNames() []string {
 	return names
 }
 
-// roundRobin interleaves groups one-per-pass, ≤ limit items, so the budget spreads across groups; preserves intra-group order, doesn't mutate inputs.
 func roundRobin[T any](groups [][]T, limit int) []T {
 	if limit <= 0 {
 		return nil
@@ -293,7 +280,6 @@ func roundRobin[T any](groups [][]T, limit int) []T {
 	return out
 }
 
-// RecordRun persists that a task just ran on a repo.
 func (s *Scheduler) RecordRun(repoSlug, taskName string) error {
 	key := state.SweepKey(repoSlug, taskName)
 	return s.store.UpdateSweep(key, func(ss *state.SweepState) {
@@ -301,7 +287,6 @@ func (s *Scheduler) RecordRun(repoSlug, taskName string) error {
 	})
 }
 
-// Summary returns a human-readable status of sweep task cooldowns.
 func (s *Scheduler) Summary() string {
 	var out string
 	for _, t := range s.tasks {
