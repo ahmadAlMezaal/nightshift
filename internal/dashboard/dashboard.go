@@ -33,6 +33,7 @@ type Controls interface {
 	PauseDispatch() bool
 	ResumeDispatch() bool
 	ClearSkipped(identifier string) error
+	TriggerSweep(opts sweep.PlanOptions) error
 }
 
 // Providers supplies the dashboard's data sources; all fields optional — nil degrades to empty responses.
@@ -156,6 +157,7 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 	mux.Handle("/api/pause", s.requireAdmin(http.HandlerFunc(s.handlePause)))
 	mux.Handle("/api/resume", s.requireAdmin(http.HandlerFunc(s.handleResume)))
 	mux.Handle("/api/retry/", s.requireAdmin(http.HandlerFunc(s.handleRetry)))
+	mux.Handle("/api/sweep", s.requireAdmin(http.HandlerFunc(s.handleSweep)))
 
 	// ── Static files ────────────────────────────────────────────────────
 
@@ -628,6 +630,33 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 	already := s.controls.PauseDispatch()
 	slog.Info("dashboard: paused dispatch", "already_paused", already)
 	writeJSON(w, map[string]any{"status": "ok", "already_paused": already})
+}
+
+// handleSweep queues an out-of-band sweep cycle; the daemon dispatches it, so this returns as soon as it is accepted.
+func (s *Server) handleSweep(w http.ResponseWriter, r *http.Request) {
+	if s.controls == nil {
+		http.Error(w, "controls not available", http.StatusServiceUnavailable)
+		return
+	}
+	var body struct {
+		Tasks []string `json:"tasks"`
+		Repos []string `json:"repos"`
+		Force bool     `json:"force"`
+	}
+	if r.Body != nil {
+		// An empty body is a valid "sweep everything eligible" request.
+		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil && err != io.EOF {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+	}
+	opts := sweep.PlanOptions{Tasks: body.Tasks, Repos: body.Repos, IgnoreCooldown: body.Force}
+	if err := s.controls.TriggerSweep(opts); err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	slog.Info("dashboard: manual sweep queued", "tasks", body.Tasks, "repos", body.Repos, "forced", body.Force)
+	writeJSON(w, map[string]any{"status": "queued", "tasks": body.Tasks, "repos": body.Repos, "forced": body.Force})
 }
 
 func (s *Server) handleResume(w http.ResponseWriter, r *http.Request) {

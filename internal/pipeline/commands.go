@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/linear"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
+	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 	"github.com/ahmadAlMezaal/noctra/internal/telegram"
 )
 
@@ -26,6 +28,7 @@ func (p *Pipeline) registerCommands(d *telegram.Dispatcher) {
 	d.Register("resume", "Resume new dispatches after /pause", p.handleResume)
 	d.Register("kill", "Kill a running ticket (e.g. /kill ENG-42)", p.handleKill)
 	d.Register("requeue", "Re-queue a ticket with context (e.g. /requeue ENG-42 use Auth0)", p.handleRequeue)
+	d.Register("sweep", "Run a maintenance sweep now (e.g. /sweep, /sweep lint-cleanup trade-mate, /sweep --force dead-code)", p.handleSweep)
 	d.RegisterConversation("addrepo", "Add a repository, guided: GitHub repo → Linear project → base branch", p.startAddRepo)
 }
 
@@ -405,4 +408,48 @@ func normalizeIdentifier(input, teamKey string) string {
 		return strings.ToUpper(teamKey) + "-" + input
 	}
 	return strings.ToUpper(input)
+}
+
+// handleSweep queues an out-of-band sweep. Bare tokens are matched against the task catalog first and
+// treated as repo filters otherwise, so "/sweep lint-cleanup trade-mate" reads naturally.
+func (p *Pipeline) handleSweep(ctx context.Context, args string) string {
+	names := p.SweepTaskNames()
+	if len(names) == 0 {
+		return "Sweeps are disabled. Set `SWEEP_ENABLED=true` and restart to use /sweep."
+	}
+
+	var opts sweep.PlanOptions
+	for _, tok := range strings.Fields(args) {
+		switch strings.ToLower(tok) {
+		case "--force", "-f", "force":
+			opts.IgnoreCooldown = true
+			continue
+		}
+		if slices.Contains(names, strings.ToLower(tok)) {
+			opts.Tasks = append(opts.Tasks, strings.ToLower(tok))
+		} else {
+			opts.Repos = append(opts.Repos, tok)
+		}
+	}
+
+	if err := p.TriggerSweep(opts); err != nil {
+		return notify.EscapeMarkdown(err.Error())
+	}
+
+	scope := "all eligible tasks"
+	if len(opts.Tasks) > 0 || len(opts.Repos) > 0 {
+		var parts []string
+		if len(opts.Tasks) > 0 {
+			parts = append(parts, "tasks "+strings.Join(opts.Tasks, ", "))
+		}
+		if len(opts.Repos) > 0 {
+			parts = append(parts, "repos "+strings.Join(opts.Repos, ", "))
+		}
+		scope = strings.Join(parts, "; ")
+	}
+	msg := fmt.Sprintf("🧹 Sweep queued — %s.", notify.EscapeMarkdown(scope))
+	if opts.IgnoreCooldown {
+		msg += " Cooldowns ignored."
+	}
+	return msg + "\n\nIt starts within a few seconds; results arrive as they finish."
 }

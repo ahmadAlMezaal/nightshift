@@ -162,8 +162,21 @@ func parseSweepRepoRef(entry string) (ref, branch string) {
 	return entry, ""
 }
 
+// PlanOptions narrows a plan. Zero value = the scheduled sweep: every repo, every task, cooldowns enforced.
+type PlanOptions struct {
+	Tasks          []string // task names to include; empty = all
+	Repos          []string // repo slug substrings to include; empty = all
+	IgnoreCooldown bool     // dispatch even if the per-repo cooldown has not expired
+	Limit          int      // max jobs; <= 0 falls back to the scheduler's maxTasks
+}
+
 // Plan returns eligible (repo, task) jobs (≤ maxTasks); a task is eligible once its per-repo cooldown has expired.
 func (s *Scheduler) Plan(ctx context.Context) []Job {
+	return s.PlanWith(ctx, PlanOptions{})
+}
+
+// PlanWith is Plan with manual-trigger filters applied; the scheduled loop calls Plan.
+func (s *Scheduler) PlanWith(ctx context.Context, opts PlanOptions) []Job {
 	targets := s.repoTargets(ctx)
 	if len(targets) == 0 {
 		slog.Debug("sweep: no repos to sweep")
@@ -179,11 +192,17 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		if slug == "" {
 			continue
 		}
+		if !matchesFilter(slug, opts.Repos) {
+			continue
+		}
 		var eligible []Task
 		for _, task := range s.tasks {
+			if !matchesFilter(task.Name, opts.Tasks) {
+				continue
+			}
 			key := state.SweepKey(slug, task.Name)
 			ss := s.store.GetSweep(key)
-			if !ss.LastRunAt.IsZero() && s.now().Sub(ss.LastRunAt) < task.Cooldown {
+			if !opts.IgnoreCooldown && !ss.LastRunAt.IsZero() && s.now().Sub(ss.LastRunAt) < task.Cooldown {
 				slog.Debug("sweep: task on cooldown",
 					"task", task.Name, "repo", slug,
 					"last_run", ss.LastRunAt,
@@ -212,13 +231,42 @@ func (s *Scheduler) Plan(ctx context.Context) []Job {
 		s.repoRotation++
 	}
 
-	jobs := roundRobin(groups, s.maxTasks)
+	limit := opts.Limit
+	if limit <= 0 {
+		limit = s.maxTasks
+	}
+	jobs := roundRobin(groups, limit)
 	slog.Info("sweep plan",
 		"repos", len(targets),
 		"tasks", len(s.tasks),
 		"eligible", len(jobs),
-		"max", s.maxTasks)
+		"max", limit,
+		"forced", opts.IgnoreCooldown)
 	return jobs
+}
+
+// matchesFilter reports whether name passes a filter list; an empty list matches everything.
+// Entries match case-insensitively as substrings so "trade-mate" selects "ahmadalmezaal-trade-mate".
+func matchesFilter(name string, filters []string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for _, f := range filters {
+		f = strings.TrimSpace(f)
+		if f != "" && strings.Contains(strings.ToLower(name), strings.ToLower(f)) {
+			return true
+		}
+	}
+	return false
+}
+
+// TaskNames lists the registered task names, for validating a manual trigger's filters.
+func (s *Scheduler) TaskNames() []string {
+	names := make([]string, 0, len(s.tasks))
+	for _, t := range s.tasks {
+		names = append(names, t.Name)
+	}
+	return names
 }
 
 // roundRobin interleaves groups one-per-pass, ≤ limit items, so the budget spreads across groups; preserves intra-group order, doesn't mutate inputs.

@@ -6,6 +6,7 @@
 //	noctra setup      interactive .env wizard
 //	noctra config     read or edit .env settings (path, list, edit, get, set)
 //	noctra repos      add a repository or list the cloned ones (add, list)
+//	noctra sweep      run a maintenance sweep now, without waiting for the schedule
 //	noctra cleanup    clean up stale branches and worktrees
 //	noctra cleanup --force
 //	noctra doctor     preflight dependency and config checks
@@ -44,6 +45,7 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/selfupdate"
 	"github.com/ahmadAlMezaal/noctra/internal/service"
 	"github.com/ahmadAlMezaal/noctra/internal/setup"
+	"github.com/ahmadAlMezaal/noctra/internal/sweepcmd"
 )
 
 // version defaults to a dev marker; release builds stamp the tag via -ldflags "-X main.version=...".
@@ -94,6 +96,8 @@ func realMain() error {
 		return configcmd.Run(scriptDir, os.Args[2:])
 	case "repos":
 		return reposcmd.Run(scriptDir, os.Args[2:])
+	case "sweep":
+		return sweepcmd.Run(scriptDir, os.Args[2:])
 	case "cleanup":
 		force := len(os.Args) > 2 && os.Args[2] == "--force"
 		return runCleanup(scriptDir, force)
@@ -259,6 +263,7 @@ func printUsage() {
 	fmt.Println("  dashboard SSH-tunnel to a remote dashboard and open it in your browser")
 	fmt.Println("  config    Read or edit .env settings (path, edit, get, set)")
 	fmt.Println("  repos     Add a repository or list the cloned ones (add, list)")
+	fmt.Println("  sweep     Run a maintenance sweep now (--task, --repo, --force)")
 	fmt.Println("  cleanup   Clean up stale branches and worktrees")
 	fmt.Println("  doctor    Preflight dependency and config checks")
 	fmt.Println("  update    Self-update to the latest release (--restart to restart the service)")
@@ -385,7 +390,7 @@ func runService(verb string) error {
 
 // subcommands is the completion list, kept in one place so help, the completion script, and tests stay in sync.
 var subcommands = []string{
-	"run", "setup", "dashboard", "config", "repos", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
+	"run", "setup", "dashboard", "config", "repos", "sweep", "update", "install-service", "uninstall", "logs", "tail", "start", "stop", "restart",
 	"status", "doctor", "cleanup", "completion", "version", "help",
 }
 

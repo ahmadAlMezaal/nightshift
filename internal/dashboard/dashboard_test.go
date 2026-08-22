@@ -608,6 +608,8 @@ type stubControls struct {
 	retryErr    error
 	pauseCalled bool
 	resumeCall  bool
+	sweepErr    error
+	sweepOpts   *sweep.PlanOptions
 }
 
 func (s *stubControls) KillRun(id string) error      { return s.killErr }
@@ -616,6 +618,10 @@ func (s *stubControls) ResumeDispatch() bool         { s.resumeCall = true; retu
 func (s *stubControls) ClearSkipped(id string) error { return s.retryErr }
 func (s *stubControls) RequeueTicket(_ context.Context, id, ctx, src string) error {
 	return s.requeueErr
+}
+func (s *stubControls) TriggerSweep(opts sweep.PlanOptions) error {
+	s.sweepOpts = &opts
+	return s.sweepErr
 }
 
 func TestAdminGating_KillEndpoint(t *testing.T) {
@@ -760,5 +766,96 @@ func TestAdminStatus_Endpoint(t *testing.T) {
 	_ = json.NewDecoder(resp2.Body).Decode(&status2)
 	if status2["admin_enabled"] {
 		t.Error("expected admin_enabled=false")
+	}
+}
+
+// TestSweepEndpoint_QueuesWithFilters checks the admin sweep endpoint forwards its body to Controls.
+func TestSweepEndpoint_QueuesWithFilters(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	body := strings.NewReader(`{"tasks":["lint-cleanup"],"repos":["trade-mate"],"force":true}`)
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/sweep", body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer admin-tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	if ctrl.sweepOpts == nil {
+		t.Fatal("TriggerSweep was not called")
+	}
+	if !ctrl.sweepOpts.IgnoreCooldown {
+		t.Error("force was not forwarded")
+	}
+	if len(ctrl.sweepOpts.Tasks) != 1 || ctrl.sweepOpts.Tasks[0] != "lint-cleanup" {
+		t.Errorf("tasks: got %v", ctrl.sweepOpts.Tasks)
+	}
+	if len(ctrl.sweepOpts.Repos) != 1 || ctrl.sweepOpts.Repos[0] != "trade-mate" {
+		t.Errorf("repos: got %v", ctrl.sweepOpts.Repos)
+	}
+}
+
+// TestSweepEndpoint_RequiresAdminToken guards the control endpoint against the read-only token.
+func TestSweepEndpoint_RequiresAdminToken(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/sweep", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer read-tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status: got %d, want 403", resp.StatusCode)
+	}
+	if ctrl.sweepOpts != nil {
+		t.Error("read token reached TriggerSweep")
+	}
+}
+
+// TestSweepEndpoint_EmptyBodyMeansEverything: no body is a valid "sweep all eligible" request.
+func TestSweepEndpoint_EmptyBodyMeansEverything(t *testing.T) {
+	ctrl := &stubControls{}
+	srv := New(":0", "read-tok", "admin-tok", func() any { return nil }, Providers{}, ctrl, nil)
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+
+	req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/sweep", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer admin-tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", resp.StatusCode)
+	}
+	if ctrl.sweepOpts == nil {
+		t.Fatal("TriggerSweep was not called")
+	}
+	if len(ctrl.sweepOpts.Tasks) != 0 || len(ctrl.sweepOpts.Repos) != 0 || ctrl.sweepOpts.IgnoreCooldown {
+		t.Errorf("empty body should mean unfiltered, got %+v", *ctrl.sweepOpts)
 	}
 }
