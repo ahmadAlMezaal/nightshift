@@ -32,6 +32,7 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 
 	for {
 		due := p.sweeper.DueIn()
+		var manual *sweep.PlanOptions
 		if due > 0 {
 			slog.Debug("sweep: next sweep in", "due_in", due)
 			timer := time.NewTimer(due)
@@ -40,6 +41,9 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 				timer.Stop()
 				return
 			case <-timer.C:
+			case req := <-p.sweepNow:
+				timer.Stop()
+				manual = &req
 			}
 		}
 
@@ -49,6 +53,10 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 
 		// Wait for a budget pause to expire rather than skipping the whole sweep interval.
 		if paused, until, reason := p.budget.IsPaused(); paused {
+			if manual != nil {
+				p.refuseManualSweep(ctx, "budget paused: "+reason)
+				continue
+			}
 			slog.Debug("sweep: paused, waiting for resume", "reason", reason, "until", until)
 			retryIn := time.Until(until)
 			if retryIn < 10*time.Second {
@@ -64,14 +72,52 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 			continue
 		}
 		if reason := p.budget.ExceededReason(); reason != "" {
+			if manual != nil {
+				p.refuseManualSweep(ctx, "budget exceeded: "+reason)
+				continue
+			}
 			slog.Debug("sweep: skipping (budget exceeded)", "reason", reason)
 			p.sweeper.MarkSwept()
 			continue
 		}
 
-		p.sweepOnce(ctx, wg)
+		if manual != nil {
+			slog.Info("sweep: manual trigger", "tasks", manual.Tasks, "repos", manual.Repos, "forced", manual.IgnoreCooldown)
+			// Deliberately no MarkSwept: an ad-hoc sweep must not shift the scheduled cadence.
+			p.sweepOnce(ctx, wg, *manual)
+			continue
+		}
+
+		p.sweepOnce(ctx, wg, sweep.PlanOptions{})
 		p.sweeper.MarkSwept()
 	}
+}
+
+// TriggerSweep queues an out-of-band sweep cycle for runSweepLoop to dispatch on its next wake-up.
+// It does not wait for the cycle to finish; progress lands in the log and the configured notifiers.
+func (p *Pipeline) TriggerSweep(opts sweep.PlanOptions) error {
+	if p.sweeper == nil {
+		return errors.New("sweeps are disabled — set SWEEP_ENABLED=true")
+	}
+	select {
+	case p.sweepNow <- opts:
+		return nil
+	default:
+		return errors.New("a manual sweep is already queued")
+	}
+}
+
+// SweepTaskNames lists registered sweep tasks so callers can validate a --task filter before queueing.
+func (p *Pipeline) SweepTaskNames() []string {
+	if p.sweeper == nil {
+		return nil
+	}
+	return p.sweeper.TaskNames()
+}
+
+func (p *Pipeline) refuseManualSweep(ctx context.Context, reason string) {
+	slog.Warn("sweep: manual trigger refused", "reason", reason)
+	p.notifier.Send(ctx, fmt.Sprintf("⏸ *Manual sweep refused* — %s", notify.EscapeMarkdown(reason)))
 }
 
 func (p *Pipeline) branchFromLinearDirective(ctx context.Context, ref string) string {
@@ -97,10 +143,13 @@ func (p *Pipeline) branchFromLinearDirective(ctx context.Context, ref string) st
 }
 
 // sweepOnce runs one sweep cycle: plan eligible jobs and dispatch them.
-func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup) {
-	jobs := p.sweeper.Plan(ctx)
+func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup, opts sweep.PlanOptions) {
+	jobs := p.sweeper.PlanWith(ctx, opts)
 	if len(jobs) == 0 {
 		slog.Info("sweep: no eligible tasks")
+		if opts.Tasks != nil || opts.Repos != nil || opts.IgnoreCooldown {
+			p.notifier.Send(ctx, "🧹 *Manual sweep* — no eligible tasks matched")
+		}
 		return
 	}
 

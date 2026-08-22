@@ -488,3 +488,92 @@ func addOrigin(t *testing.T, dir, url string) {
 		t.Fatalf("git remote add: %s: %v", out, err)
 	}
 }
+
+// TestPlanWith_IgnoreCooldown is the point of `--force`: a task still on cooldown is dispatched anyway.
+func TestPlanWith_IgnoreCooldown(t *testing.T) {
+	reposBase := t.TempDir()
+	initTestRepo(t, reposBase, "my-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	tasks := []Task{testTask("task-a", 24*time.Hour), testTask("task-b", 24*time.Hour)}
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil, nil)
+
+	if err := s.RecordRun("my-repo", "task-a"); err != nil {
+		t.Fatal(err)
+	}
+	if jobs := s.Plan(context.Background()); len(jobs) != 1 {
+		t.Fatalf("cooldown not enforced on the scheduled path: got %d jobs, want 1", len(jobs))
+	}
+
+	jobs := s.PlanWith(context.Background(), PlanOptions{IgnoreCooldown: true})
+	if len(jobs) != 2 {
+		t.Fatalf("IgnoreCooldown: got %d jobs, want 2", len(jobs))
+	}
+}
+
+// TestPlanWith_TaskAndRepoFilters narrows a manual sweep to one task and one repo.
+func TestPlanWith_TaskAndRepoFilters(t *testing.T) {
+	reposBase := t.TempDir()
+	initTestRepo(t, reposBase, "alpha-repo")
+	initTestRepo(t, reposBase, "beta-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	tasks := []Task{testTask("task-a", 24*time.Hour), testTask("task-b", 24*time.Hour)}
+	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil, nil)
+
+	jobs := s.PlanWith(context.Background(), PlanOptions{Tasks: []string{"task-a"}})
+	if len(jobs) != 2 { // task-a on both repos
+		t.Fatalf("task filter: got %d jobs, want 2", len(jobs))
+	}
+	for _, j := range jobs {
+		if j.Task.Name != "task-a" {
+			t.Errorf("task filter leaked %q", j.Task.Name)
+		}
+	}
+
+	jobs = s.PlanWith(context.Background(), PlanOptions{Tasks: []string{"task-a"}, Repos: []string{"alpha"}})
+	if len(jobs) != 1 {
+		t.Fatalf("task+repo filter: got %d jobs, want 1", len(jobs))
+	}
+	if jobs[0].RepoSlug != "alpha-repo" || jobs[0].Task.Name != "task-a" {
+		t.Errorf("got %s/%s, want alpha-repo/task-a", jobs[0].RepoSlug, jobs[0].Task.Name)
+	}
+}
+
+// TestPlanWith_UnmatchedFilterPlansNothing: a typo'd filter must dispatch nothing, never everything.
+func TestPlanWith_UnmatchedFilterPlansNothing(t *testing.T) {
+	reposBase := t.TempDir()
+	initTestRepo(t, reposBase, "my-repo")
+	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
+
+	s := NewScheduler(store, resolver(reposBase), []Task{testTask("task-a", time.Hour)}, time.Hour, 10, nil, nil)
+
+	if jobs := s.PlanWith(context.Background(), PlanOptions{Tasks: []string{"no-such-task"}}); len(jobs) != 0 {
+		t.Fatalf("unmatched task filter: got %d jobs, want 0", len(jobs))
+	}
+	if jobs := s.PlanWith(context.Background(), PlanOptions{Repos: []string{"no-such-repo"}}); len(jobs) != 0 {
+		t.Fatalf("unmatched repo filter: got %d jobs, want 0", len(jobs))
+	}
+}
+
+func TestMatchesFilter(t *testing.T) {
+	cases := []struct {
+		name    string
+		filters []string
+		want    bool
+	}{
+		{"lint-cleanup", nil, true},
+		{"lint-cleanup", []string{}, true},
+		{"lint-cleanup", []string{"lint-cleanup"}, true},
+		{"ahmadalmezaal-trade-mate", []string{"trade-mate"}, true},
+		{"ahmadalmezaal-trade-mate", []string{"TRADE-MATE"}, true},
+		{"lint-cleanup", []string{"dead-code"}, false},
+		{"lint-cleanup", []string{"  "}, false},
+		{"lint-cleanup", []string{"dead-code", "lint"}, true},
+	}
+	for _, c := range cases {
+		if got := matchesFilter(c.name, c.filters); got != c.want {
+			t.Errorf("matchesFilter(%q, %v) = %v, want %v", c.name, c.filters, got, c.want)
+		}
+	}
+}

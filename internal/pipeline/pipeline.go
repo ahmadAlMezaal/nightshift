@@ -51,6 +51,10 @@ type Pipeline struct {
 	budget  *budget.Tracker
 	sweeper *sweep.Scheduler
 
+	// sweepNow carries out-of-band sweep requests to runSweepLoop, so a manual trigger dispatches
+	// through the loop's own WaitGroup and worker-pool accounting rather than spawning beside it.
+	sweepNow chan sweep.PlanOptions
+
 	planConfirmLabelID string
 
 	dash *dashboard.Server
@@ -112,6 +116,7 @@ func New(cfg *config.Config) *Pipeline {
 		activeRepos:    map[string]string{},
 		activeMeta:     map[string]activeRunMeta{},
 		cancels:        map[string]context.CancelFunc{},
+		sweepNow:       make(chan sweep.PlanOptions, 1),
 		killed:         map[string]struct{}{},
 		failedAttempts: map[string]int{},
 		skipped:        map[string]struct{}{},
