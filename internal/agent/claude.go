@@ -62,8 +62,10 @@ type claudeStreamEvent struct {
 	Subtype      string      `json:"subtype"`
 	Result       string      `json:"result"`
 	TotalCostUSD float64     `json:"total_cost_usd"`
+	Model        string      `json:"model"`
 	Usage        claudeUsage `json:"usage"`
 	Message      struct {
+		Model string      `json:"model"`
 		Usage claudeUsage `json:"usage"`
 	} `json:"message"`
 }
@@ -77,6 +79,24 @@ type claudeUsage struct {
 
 func (u claudeUsage) total() int64 {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+}
+
+func (u *claudeUsage) add(other claudeUsage) {
+	u.InputTokens += other.InputTokens
+	u.OutputTokens += other.OutputTokens
+	u.CacheCreationInputTokens += other.CacheCreationInputTokens
+	u.CacheReadInputTokens += other.CacheReadInputTokens
+}
+
+func (u claudeUsage) toUsage(model string) Usage {
+	billedInput := u.InputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
+	return Usage{
+		InputTokens:  billedInput,
+		OutputTokens: u.OutputTokens,
+		TotalTokens:  u.total(),
+		CostUSD: PricesForModel(model).Estimate(
+			u.InputTokens, u.OutputTokens, u.CacheCreationInputTokens, u.CacheReadInputTokens),
+	}
 }
 
 type streamTail struct {
@@ -137,7 +157,9 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 	var (
 		final     Usage
 		result    string
+		cumUsage  claudeUsage
 		cumTokens int64
+		model     string
 		aborted   bool
 		tail      streamTail
 	)
@@ -151,8 +173,12 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 			} else {
 				switch ev.Type {
 				case "assistant":
-					cumTokens += ev.Message.Usage.total()
-					if !aborted && cumTokens >= opts.MaxTokens {
+					if ev.Message.Model != "" {
+						model = ev.Message.Model
+					}
+					cumUsage.add(ev.Message.Usage)
+					cumTokens = cumUsage.total()
+					if !aborted && opts.MaxTokens > 0 && cumTokens >= opts.MaxTokens {
 						aborted = true
 						cancel()
 					}
@@ -186,10 +212,13 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 	}
 	writeRunLog(ctx, opts, body+stderr.String())
 
+	if final.TotalTokens == 0 && cumTokens > 0 {
+		final = cumUsage.toUsage(model)
+	} else if final.CostUSD == 0 && cumTokens > 0 {
+		final.CostUSD = cumUsage.toUsage(model).CostUSD
+	}
+
 	if aborted {
-		if final.TotalTokens == 0 {
-			final.TotalTokens = cumTokens
-		}
 		return final, fmt.Errorf("%w: cumulative ~%d tokens (ceiling %d)", ErrTokenCapExceeded, cumTokens, opts.MaxTokens)
 	}
 	if waitErr != nil {

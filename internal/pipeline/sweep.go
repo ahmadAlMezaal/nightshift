@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ahmadAlMezaal/noctra/internal/agent"
+	"github.com/ahmadAlMezaal/noctra/internal/budget"
 	"github.com/ahmadAlMezaal/noctra/internal/config"
 	"github.com/ahmadAlMezaal/noctra/internal/github"
 	"github.com/ahmadAlMezaal/noctra/internal/notify"
@@ -192,6 +193,45 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup, opts sweep
 	}
 }
 
+func (p *Pipeline) abortSweepTask(ctx context.Context, job sweep.Job, identifier string,
+	backend agent.Backend, startedAt time.Time, usage agent.Usage, logger *slog.Logger, detail string) {
+
+	if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
+		logger.Warn("could not record sweep run in state", "err", err)
+	}
+	p.recordRun(state.RunHistory{
+		Identifier: identifier, Repo: job.RepoSlug,
+		AgentBackend: backend.Name(), RunType: "sweep",
+		StartedAt: startedAt, FinishedAt: time.Now(), Status: "aborted",
+	})
+	p.notifySweepOutcome(ctx, job, "🛑", "aborted", detail, usage)
+}
+
+func (p *Pipeline) notifySweepOutcome(ctx context.Context, job sweep.Job,
+	icon, outcome, detail string, usage agent.Usage) {
+
+	msg := fmt.Sprintf("%s *Sweep %s* — %s on %s", icon, outcome,
+		notify.EscapeMarkdown(job.Task.Name), notify.EscapeMarkdown(job.RepoSlug))
+	if detail != "" {
+		msg += "\n" + notify.EscapeMarkdown(truncateDetail(detail))
+	}
+	if usage.TotalTokens > 0 {
+		msg += fmt.Sprintf("\n%s tokens", budget.FormatTokens(usage.TotalTokens))
+		if usage.CostUSD > 0 {
+			msg += fmt.Sprintf(" · ~$%.2f", usage.CostUSD)
+		}
+	}
+	p.notifier.Send(context.WithoutCancel(ctx), msg)
+}
+
+func truncateDetail(s string) string {
+	const maxDetail = 300
+	if len(s) <= maxDetail {
+		return s
+	}
+	return strings.TrimSpace(s[:maxDetail]) + "…"
+}
+
 func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifier string) {
 	startedAt := time.Now()
 	logger := slog.With("sweep_task", job.Task.Name, "repo", job.RepoSlug, "id", identifier)
@@ -252,7 +292,12 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 
 	if errors.Is(runErr, agent.ErrTimedOut) {
-		logger.Warn("sweep task timed out", "timeout", p.cfg.SweepTimeout)
+		p.budget.Record(usage.TotalTokens, usage.CostUSD)
+		p.recordUsage(usage, "sweep", identifier, "", backend)
+		logger.Warn("sweep task timed out",
+			"timeout", p.cfg.SweepTimeout, "tokens", usage.TotalTokens)
+		p.abortSweepTask(ctx, job, identifier, backend, startedAt, usage, logger,
+			fmt.Sprintf("Ran out of time after %s without finishing.", p.cfg.SweepTimeout))
 		return
 	}
 
@@ -261,14 +306,9 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		p.recordUsage(usage, "sweep", identifier, "", backend)
 		logger.Warn("sweep task aborted: per-run token ceiling reached",
 			"max_tokens", sweepMaxTokens, "tokens", usage.TotalTokens)
-		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
-			logger.Warn("could not record sweep run in state", "err", err)
-		}
-		p.recordRun(state.RunHistory{
-			Identifier: identifier, Repo: job.RepoSlug,
-			AgentBackend: backend.Name(), RunType: "sweep",
-			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
-		})
+		p.abortSweepTask(ctx, job, identifier, backend, startedAt, usage, logger,
+			fmt.Sprintf("Hit the %s token ceiling without finishing.",
+				budget.FormatTokens(int64(sweepMaxTokens))))
 		return
 	}
 
@@ -302,6 +342,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			AgentBackend: backend.Name(), RunType: "sweep",
 			StartedAt: startedAt, FinishedAt: time.Now(), Status: "failed",
 		})
+		p.notifySweepOutcome(ctx, job, "❌", "failed", runErr.Error(), usage)
 		return
 	}
 
@@ -315,6 +356,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			AgentBackend: backend.Name(), RunType: "sweep",
 			StartedAt: startedAt, FinishedAt: time.Now(), Status: "blocked",
 		})
+		p.notifySweepOutcome(ctx, job, "🚧", "nothing to do", blocked, usage)
 		return
 	}
 
@@ -338,6 +380,7 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 			AgentBackend: backend.Name(), RunType: "sweep",
 			StartedAt: startedAt, FinishedAt: time.Now(), Status: "no_change",
 		})
+		p.notifySweepOutcome(ctx, job, "🔕", "no changes", "The agent finished without touching any files.", usage)
 		return
 	}
 

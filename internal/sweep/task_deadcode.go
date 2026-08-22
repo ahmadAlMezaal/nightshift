@@ -28,10 +28,12 @@ Scan the codebase at %s for unused code, imports, variables, functions, types, a
    - Unexported functions/types/methods that have no callers within the package
    - Commented-out code blocks (not documentation comments — only dead code)
 3. Remove dead code carefully. If removal would break the public API (exported symbols), leave it.
-4. Run the test suite and the build to make sure nothing broke.
+4. Make all removals first, then run the build and the test suite ONCE at the end to confirm nothing broke.
 5. Run the linter if available.
 
 ## Rules:
+- Remove at most 20 symbols in a single run. If there is more dead code than that, remove the clearest 20 and note the rest in your summary.
+- Run the full build/test suite at most 3 times. If it is still red on the third attempt, revert to the last state you verified green, keep only those removals, and summarize.
 - Only remove genuinely dead/unused code. Do not refactor, rename, or restructure.
 - Do not remove code that is used via reflection, build tags, or generated code patterns.
 - Do not remove TODO/FIXME comments — only actual dead code.

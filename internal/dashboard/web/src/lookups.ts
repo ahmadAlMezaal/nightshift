@@ -28,6 +28,7 @@ const OUT: Record<string, OutcomeInfo> = {
   pr_opened: { label: 'PR opened', color: '#8FB4FF', bg: 'rgba(143,180,255,0.13)' },
   blocked: { label: 'blocked', color: '#F4B860', bg: 'rgba(244,184,96,0.13)' },
   failed: { label: 'failed', color: '#FB7185', bg: 'rgba(251,113,133,0.13)' },
+  aborted: { label: 'aborted', color: '#F97316', bg: 'rgba(249,115,22,0.13)' },
   no_change: { label: 'no change', color: '#828BA3', bg: 'rgba(130,139,163,0.13)' },
 }
 
@@ -35,7 +36,7 @@ export function outInfo(status: string | undefined): OutcomeInfo {
   return OUT[status || ''] || { label: status || '—', color: '#828BA3', bg: 'rgba(130,139,163,0.13)' }
 }
 
-export const OUTCOME_ORDER =['merged', 'pr_opened', 'no_change', 'blocked', 'failed']
+export const OUTCOME_ORDER =['merged', 'pr_opened', 'no_change', 'blocked', 'aborted', 'failed']
 
 export interface SweepTaskDef {
   name: string
