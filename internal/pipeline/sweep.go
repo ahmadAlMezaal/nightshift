@@ -193,18 +193,139 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup, opts sweep
 	}
 }
 
-func (p *Pipeline) abortSweepTask(ctx context.Context, job sweep.Job, identifier string,
-	backend agent.Backend, startedAt time.Time, usage agent.Usage, logger *slog.Logger, detail string) {
+type sweepAbort struct {
+	job        sweep.Job
+	identifier string
+	backend    agent.Backend
+	startedAt  time.Time
+	usage      agent.Usage
+	logger     *slog.Logger
+	detail     string
+	worktree   repo.Worktree
+}
 
-	if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
-		logger.Warn("could not record sweep run in state", "err", err)
+func (p *Pipeline) abortSweepTask(ctx context.Context, a sweepAbort) {
+	prURL := p.salvageAbortedWork(ctx, a)
+
+	if err := p.sweeper.RecordRun(a.job.RepoSlug, a.job.Task.Name); err != nil {
+		a.logger.Warn("could not record sweep run in state", "err", err)
 	}
 	p.recordRun(state.RunHistory{
-		Identifier: identifier, Repo: job.RepoSlug,
-		AgentBackend: backend.Name(), RunType: "sweep",
-		StartedAt: startedAt, FinishedAt: time.Now(), Status: "aborted",
+		Identifier: a.identifier, PRURL: prURL, Repo: a.job.RepoSlug,
+		AgentBackend: a.backend.Name(), RunType: "sweep",
+		StartedAt: a.startedAt, FinishedAt: time.Now(), Status: "aborted",
 	})
-	p.notifySweepOutcome(ctx, job, "🛑", "aborted", detail, usage)
+
+	detail := a.detail
+	if prURL != "" {
+		detail += "\nSalvaged the work so far as a draft PR: " + prURL
+	}
+	p.notifySweepOutcome(ctx, a.job, "🛑", "aborted", detail, a.usage)
+}
+
+func (p *Pipeline) salvageAbortedWork(ctx context.Context, a sweepAbort) string {
+	dirty, err := workingTreeChanged(ctx, a.worktree.Path)
+	if err != nil {
+		a.logger.Warn("could not check worktree for salvageable work", "err", err)
+		return ""
+	}
+	committed, err := branchAhead(ctx, a.worktree.Path, "origin/"+a.job.MainBranch)
+	if err != nil {
+		a.logger.Warn("could not check branch for salvageable work", "err", err)
+		return ""
+	}
+	if !dirty && !committed {
+		a.logger.Info("aborted sweep left no changes to salvage")
+		return ""
+	}
+
+	if dirty {
+		if err := runIn(ctx, a.worktree.Path, "git", "add", "-A"); err != nil {
+			a.logger.Warn("could not stage salvaged work", "err", err)
+			return ""
+		}
+		staged, err := hasStagedChanges(ctx, a.worktree.Path)
+		if err != nil {
+			a.logger.Warn("could not inspect staged salvaged work", "err", err)
+			return ""
+		}
+		if staged {
+			msg := appendCoAuthorTrailer(
+				fmt.Sprintf("%s: %s (partial)\n\nAutonomous maintenance by Noctra using %s.\n%s",
+					a.job.Task.CommitPrefix, a.job.Task.Description, a.backend.Label(), a.detail),
+				a.backend.CoAuthor())
+			if err := runIn(ctx, a.worktree.Path, "git", "commit", "-m", msg); err != nil {
+				a.logger.Warn("could not commit salvaged work", "err", err)
+				return ""
+			}
+		}
+	}
+
+	if err := runIn(ctx, a.worktree.Path, "git", "push", "-u", "origin", a.worktree.Branch); err != nil {
+		a.logger.Warn("could not push salvaged work", "err", err)
+		return ""
+	}
+
+	stat := gitDiffStat(ctx, a.worktree.Path, "origin/"+a.job.MainBranch)
+	prURL, err := ghCreateDraftPR(ctx, a.job.RepoPath,
+		salvagedPRTitle(a.job.Task.CommitPrefix, a.job.Task.Description),
+		salvagedPRBody(a.job, a.detail, stat, a.backend.Label()),
+		a.job.MainBranch, a.worktree.Branch)
+	if err != nil {
+		a.logger.Warn("could not open draft PR for salvaged work", "err", err)
+		return ""
+	}
+
+	if a.job.Task.PRLabel != "" {
+		if err := ghAddLabel(ctx, a.job.RepoPath, prURL, a.job.Task.PRLabel); err != nil {
+			a.logger.Warn("could not apply label", "label", a.job.Task.PRLabel, "err", err)
+		}
+	}
+
+	a.logger.Info("salvaged aborted sweep work into a draft PR", "url", prURL)
+
+	if p.store != nil {
+		if err := p.store.Update(prURL, func(r *state.PRState) {
+			r.TicketID = a.identifier
+			r.AgentBackend = a.backend.Name()
+		}); err != nil {
+			a.logger.Warn("could not persist salvaged PR in state", "err", err)
+		}
+	}
+	return prURL
+}
+
+func salvagedPRTitle(commitPrefix, description string) string {
+	return fmt.Sprintf("%s: %s (partial)", commitPrefix, description)
+}
+
+func salvagedPRBody(job sweep.Job, detail, diffStat, backendLabel string) string {
+	stat := diffStat
+	if stat == "" {
+		stat = "(diffstat unavailable)"
+	}
+	return fmt.Sprintf(`## 🛑 Partial maintenance: %s
+
+**This run was cut short and the diff is UNVERIFIED.** %s
+
+It is opened as a draft so the work is not thrown away. The agent never reached its
+own build/test verification step, so nothing here is known to be green — review it,
+or close it, before merging.
+
+**Task:** %s
+**Repo:** %s
+
+## Changes on the branch
+
+`+"```"+`
+%s
+`+"```"+`
+
+---
+
+*Autonomous maintenance by [Noctra](https://github.com/ahmadAlMezaal/noctra) 🌙 using %s*
+%s`, job.Task.Name, detail, job.Task.Description, job.RepoSlug, stat, backendLabel,
+		github.NoctraPRBodyMarker)
 }
 
 func (p *Pipeline) notifySweepOutcome(ctx context.Context, job sweep.Job,
@@ -296,8 +417,11 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		p.recordUsage(usage, "sweep", identifier, "", backend)
 		logger.Warn("sweep task timed out",
 			"timeout", p.cfg.SweepTimeout, "tokens", usage.TotalTokens)
-		p.abortSweepTask(ctx, job, identifier, backend, startedAt, usage, logger,
-			fmt.Sprintf("Ran out of time after %s without finishing.", p.cfg.SweepTimeout))
+		p.abortSweepTask(ctx, sweepAbort{
+			job: job, identifier: identifier, backend: backend, startedAt: startedAt,
+			usage: usage, logger: logger, worktree: wt,
+			detail: fmt.Sprintf("Ran out of time after %s without finishing.", p.cfg.SweepTimeout),
+		})
 		return
 	}
 
@@ -306,9 +430,12 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		p.recordUsage(usage, "sweep", identifier, "", backend)
 		logger.Warn("sweep task aborted: per-run token ceiling reached",
 			"max_tokens", sweepMaxTokens, "tokens", usage.TotalTokens)
-		p.abortSweepTask(ctx, job, identifier, backend, startedAt, usage, logger,
-			fmt.Sprintf("Hit the %s token ceiling without finishing.",
-				budget.FormatTokens(int64(sweepMaxTokens))))
+		p.abortSweepTask(ctx, sweepAbort{
+			job: job, identifier: identifier, backend: backend, startedAt: startedAt,
+			usage: usage, logger: logger, worktree: wt,
+			detail: fmt.Sprintf("Hit the %s token ceiling without finishing.",
+				budget.FormatTokens(int64(sweepMaxTokens))),
+		})
 		return
 	}
 
