@@ -23,11 +23,12 @@ Update outdated dependencies in the project at %s, conservatively.
 ## Instructions:
 1. Detect the package manager(s) in use (e.g. go.mod, package.json, pyproject.toml, Cargo.toml).
 2. List outdated dependencies (e.g. go list -u -m all, npm outdated, pip list --outdated).
-3. Bump dependencies that have a newer compatible release. Prefer patch and minor bumps.
-4. After updating, run the build and the full test suite to confirm nothing broke.
-5. If a bump breaks the build or tests, revert that single bump and leave it out.
+3. Bump dependencies that have a newer compatible release. Prefer patch and minor bumps. Bump at most 5 dependencies in a single run — pick the most valuable ones and leave the rest for a future run.
+4. Apply all chosen bumps first, then run the build and the full test suite ONCE for the whole batch.
+5. If the batch fails, bisect at most twice to isolate the culprit. If it is still failing after that, revert to the last combination you verified green (or drop all bumps) and summarize what you could not land.
 
 ## Rules:
+- Run the full build/test suite at most 4 times in this run. Shipping 2 verified bumps beats spending the whole run chasing 10.
 - Do NOT bump across a major version (e.g. v1 -> v2) unless the change is trivial and verified green.
 - Update lockfiles where applicable (go.sum, package-lock.json) via the proper tooling, not by hand.
 - One coherent PR of dependency bumps; do not mix in unrelated refactors.
