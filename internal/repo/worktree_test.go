@@ -341,3 +341,80 @@ func TestLockRepo_SamePathSerializes(t *testing.T) {
 		t.Fatal("lockRepo did not release")
 	}
 }
+
+// gitIn runs a git command in dir, failing the test on error.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, string(out))
+	}
+}
+
+// TestCreateOrResumeWorktree_ResumesOrphanedBranch is the regression test for a run that pushed its
+// branch but died before opening a PR: every later attempt branched from main instead, producing a
+// non-descendant origin rejected as non-fast-forward.
+func TestCreateOrResumeWorktree_ResumesOrphanedBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := newFixtureRepo(t)
+
+	// Simulate the orphaned push: a branch one commit ahead of main, with no PR.
+	gitIn(t, repoDir, "checkout", "-q", "-b", "noctra/eng-414")
+	if err := os.WriteFile(filepath.Join(repoDir, "orphan.md"), []byte("prior attempt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, repoDir, "add", "-A")
+	gitIn(t, repoDir, "commit", "-m", "ENG-414: prior attempt", "--quiet")
+	gitIn(t, repoDir, "checkout", "-q", "main")
+
+	base := t.TempDir()
+	wt, resumed, err := CreateOrResumeWorktree(context.Background(), base, "ENG-414", repoDir, "main")
+	if err != nil {
+		t.Fatalf("CreateOrResumeWorktree: %v", err)
+	}
+	if !resumed {
+		t.Error("expected the existing remote branch to be resumed, not recreated from main")
+	}
+	if _, err := os.Stat(filepath.Join(wt.Path, "orphan.md")); err != nil {
+		t.Errorf("resumed worktree lost the prior attempt's commit: %v", err)
+	}
+}
+
+// TestCreateOrResumeWorktree_FreshWhenNoRemoteBranch keeps the normal path branching off main.
+func TestCreateOrResumeWorktree_FreshWhenNoRemoteBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := newFixtureRepo(t)
+	base := t.TempDir()
+
+	wt, resumed, err := CreateOrResumeWorktree(context.Background(), base, "ENG-999", repoDir, "main")
+	if err != nil {
+		t.Fatalf("CreateOrResumeWorktree: %v", err)
+	}
+	if resumed {
+		t.Error("no remote branch exists, so nothing should have been resumed")
+	}
+	if wt.Branch != "noctra/eng-999" {
+		t.Errorf("branch: got %q, want noctra/eng-999", wt.Branch)
+	}
+}
+
+func TestRemoteBranchExists(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	repoDir := newFixtureRepo(t)
+	if !RemoteBranchExists(context.Background(), repoDir, "main") {
+		t.Error("main should exist on origin")
+	}
+	if RemoteBranchExists(context.Background(), repoDir, "noctra/never-pushed") {
+		t.Error("an unpushed branch must not report as existing")
+	}
+}

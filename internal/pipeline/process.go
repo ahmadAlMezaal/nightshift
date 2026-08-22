@@ -117,15 +117,15 @@ func (p *Pipeline) process(ctx context.Context, issue source.Ticket) {
 	p.mu.Unlock()
 	p.publishDashboardChange()
 
-	wt, err := repo.CreateWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
+	wt, resumed, err := repo.CreateOrResumeWorktree(ctx, p.cfg.WorktreeBase, id, resolved.Path, resolved.MainBranch)
 	if err != nil {
 		logger.Error("worktree creation failed", "err", err)
 		p.ticketBackToTrigger(ctx, issue, fmt.Sprintf(
-			"❌ **Noctra: Setup failed**\n\nCould not create worktree. This may be a branch naming conflict.\n\nCheck that branch `%s` does not already exist on the remote.\n\nTicket moved back to **%s**.",
+			"❌ **Noctra: Setup failed**\n\nCould not create a worktree on branch `%s`.\n\nTicket moved back to **%s**.",
 			repo.BranchName(id), p.cfg.TriggerState))
 		return
 	}
-	logger.Info("worktree", "path", wt.Path, "branch", wt.Branch)
+	logger.Info("worktree", "path", wt.Path, "branch", wt.Branch, "resumed", resumed)
 
 	var repoLessons string
 	if p.store != nil {
