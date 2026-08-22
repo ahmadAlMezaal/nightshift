@@ -33,7 +33,6 @@ func TestSkipPermanently_AddToSetAndRefundsDispatch(t *testing.T) {
 		t.Fatalf("totalDispatches: got %d, want 4 (should be refunded)", p.totalDispatches)
 	}
 
-	// Skipping again should be idempotent and not decrement again.
 	p.skipPermanently("ENG-100")
 	if p.totalDispatches != 4 {
 		t.Fatalf("totalDispatches: got %d after second skip, want 4 (should be idempotent)", p.totalDispatches)
@@ -44,7 +43,6 @@ func TestNonTransientError_Detectable(t *testing.T) {
 	inner := errors.New("no repo is mapped for project \"Foo\"")
 	nte := &repo.NonTransientError{Err: inner}
 
-	// errors.As should find it.
 	var target *repo.NonTransientError
 	if !errors.As(nte, &target) {
 		t.Fatal("errors.As should detect NonTransientError")
@@ -53,12 +51,10 @@ func TestNonTransientError_Detectable(t *testing.T) {
 		t.Errorf("Error(): got %q, want %q", target.Error(), inner.Error())
 	}
 
-	// Unwrap should return the inner error.
 	if errors.Unwrap(nte) != inner {
 		t.Fatal("Unwrap should return the inner error")
 	}
 
-	// A plain error should NOT match.
 	plain := errors.New("transient clone failure")
 	if errors.As(plain, &target) {
 		t.Fatal("plain error should not match NonTransientError")

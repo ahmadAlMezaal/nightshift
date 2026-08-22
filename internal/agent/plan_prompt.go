@@ -5,7 +5,6 @@ import (
 	"strings"
 )
 
-// BuildPlanPrompt returns a plan-only prompt: the agent produces an implementation plan (posted to Linear for human review) instead of implementing.
 func BuildPlanPrompt(in BuildPromptInput) string {
 	desc := in.Description
 	if desc == "" {
@@ -46,13 +45,11 @@ The plan should include:
 - **Risks / open questions**: Anything that might need clarification.`, in.Identifier, in.Title, desc, discussion)
 }
 
-// Plan markers the plan-only prompt asks the agent to wrap its plan in.
 const (
 	PlanStartMarker = "===NOCTRA PLAN==="
 	PlanEndMarker   = "===END NOCTRA PLAN==="
 )
 
-// ExtractPlan returns the plan between the Plan markers; ("", false) when absent or empty.
 func ExtractPlan(output string) (string, bool) {
 	start := strings.LastIndex(output, PlanStartMarker)
 	if start < 0 {
@@ -70,7 +67,6 @@ func ExtractPlan(output string) (string, bool) {
 	return plan, true
 }
 
-// BuildPlanImplementPrompt returns the implementation prompt carrying the human-approved plan as context.
 func BuildPlanImplementPrompt(in BuildPromptInput, plan string) string {
 	desc := in.Description
 	if desc == "" {

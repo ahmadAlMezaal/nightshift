@@ -20,6 +20,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: no comments
+        run: ./scripts/check-comments.sh
+
       - name: go vet
         run: go vet ./...
 

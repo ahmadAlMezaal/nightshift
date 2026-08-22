@@ -7,7 +7,6 @@ import (
 
 const defaultMaxSubscribers = 64
 
-// Hub fans out invalidation events to SSE subscribers.
 type Hub struct {
 	mu          sync.Mutex
 	max         int
@@ -63,7 +62,6 @@ func (h *Hub) Subscribe(ctx context.Context) (<-chan struct{}, func(), bool) {
 	return ch, unsubscribe, true
 }
 
-// Publish notifies subscribers without blocking slow clients.
 func (h *Hub) Publish() {
 	if h == nil {
 		return

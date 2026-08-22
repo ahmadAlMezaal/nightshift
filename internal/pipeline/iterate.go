@@ -22,7 +22,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/watch"
 )
 
-// runWatcher is the PR-poll loop, started by Run when cfg.AutoIteratePRs is on.
 func (p *Pipeline) runWatcher(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -35,7 +34,6 @@ func (p *Pipeline) runWatcher(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(p.cfg.PRPollInterval)
 	defer ticker.Stop()
 
-	// Initial scan after a brief delay so the Linear-startup output clears.
 	select {
 	case <-ctx.Done():
 		return
@@ -53,7 +51,6 @@ func (p *Pipeline) runWatcher(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-// prPollOnce is one watcher tick: scan PRs, advance cursors for non-actionable events, dispatch iteratePR for actionable ones under the cap.
 func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	lessons.ProcessMergedPRs(ctx, p.store, p.gh, p.resolver, p.review)
 
@@ -72,7 +69,6 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 		newComments, newReviews := countEvents(ch.Events)
 		ciFailed := ch.CIFailure != nil
 
-		// No actionable events and no CI failure: advance the cursor so we don't re-evaluate the same events every poll.
 		if len(ch.Events) == 0 && !ciFailed {
 			reason := "none"
 			if len(ch.Skipped) > 0 {
@@ -102,7 +98,7 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 				"ci_failed", ciFailed,
 				"action", "skip", "reason", "cap",
 			)
-			p.advanceCursor(ch) // advance so skipped events aren't rediscovered forever
+			p.advanceCursor(ch)
 			continue
 		}
 
@@ -125,7 +121,6 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 				"ci_failed", ciFailed,
 				"action", "skip", "reason", "at-capacity",
 			)
-			// continue, not return: later non-actionable PRs in this batch still need their cursors advanced.
 			continue
 		}
 		ticketCtx, ticketCancel := context.WithCancel(ctx)
@@ -151,7 +146,6 @@ func (p *Pipeline) prPollOnce(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-// countEvents tallies actionable events by type for structured logging.
 func countEvents(events []watch.Event) (comments, reviews int) {
 	for _, ev := range events {
 		switch ev.Type {
@@ -164,9 +158,7 @@ func countEvents(events []watch.Event) (comments, reviews int) {
 	return
 }
 
-// resolveIterateBackend picks a PR iteration's backend: persisted state → issue labels → pipeline default.
 func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier string) agent.Backend {
-	// Persisted state — the backend the PR was created with.
 	if p.store != nil {
 		if cursor := p.store.Get(prURL); cursor.AgentBackend != "" {
 			if b, err := agent.New(cursor.AgentBackend); err == nil {
@@ -177,7 +169,6 @@ func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier 
 		}
 	}
 
-	// Re-derive from the issue's current labels.
 	if issue, err := p.linear.GetIssueByIdentifier(ctx, identifier); err == nil {
 		if label := issue.BackendLabel(); label != "" {
 			if b, err := agent.New(label); err == nil {
@@ -189,20 +180,17 @@ func (p *Pipeline) resolveIterateBackend(ctx context.Context, prURL, identifier 
 	return p.agent
 }
 
-// iteratePR is one re-engagement on an open PR: resolve repo, resume the branch, build a fix prompt from new feedback, run the agent, push the follow-up commit.
 func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier string) {
 	startedAt := time.Now()
 	logger := slog.With("id", identifier, "pr", ch.PR.URL)
 	logger.Info("re-engaging on PR", "events", len(ch.Events), "ci_failed", ch.CIFailure != nil)
 
-	p.ackEngagement(ctx, ch) // 👀 ack before the agent's slow reply
+	p.ackEngagement(ctx, ch)
 
 	backend := p.resolveIterateBackend(ctx, ch.PR.URL, identifier)
 
 	p.notifier.Send(ctx, fmt.Sprintf("🔄 *%s* — %s on PR #%d", notify.EscapeMarkdown(displayName(identifier)), engagementSummary(ch), ch.PR.Number))
 
-	// Every failure path below records the iteration before returning, else the cursor never advances and the same feedback loops forever (infra failures — timeout/rate-limit — intentionally retry).
-	// Prefer the watcher-discovered clone's remote URL (ch.PR.RepoURL) — it preserves SSH transport; the bare owner/name fallback synthesizes HTTPS, which fails on SSH-only hosts.
 	ref := ch.PR.RepoURL
 	if ref == "" {
 		var err error
@@ -250,7 +238,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	logger.Info("resume worktree", "path", wt.Path)
 	defer repo.CleanupWorktree(ctx, resolved.Path, p.cfg.WorktreeBase, identifier)
 
-	// Fetch ticket context for the fix prompt; fall back to placeholders if Linear is unreachable.
 	var title, description, issueID string
 	if issue, err := p.linear.GetIssueByIdentifier(ctx, identifier); err == nil {
 		title = issue.Title
@@ -274,7 +261,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		})
 	}
 
-	// Fetch failed-step logs for failing CI checks (best-effort — the agent can reproduce locally otherwise).
 	var ciItems []agent.CIItem
 	if ch.CIFailure != nil {
 		for _, chk := range ch.CIFailure.FailedChecks {
@@ -282,7 +268,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			if logs, err := p.gh.CheckLogs(ctx, chk); err == nil {
 				item.Logs = logs
 			} else if errors.Is(err, github.ErrNotActionsRun) {
-				// Non-Actions checks (CircleCI, Vercel, …) have no logs to fetch — not worth a warning.
 				logger.Debug("skipping log fetch for non-Actions check", "check", chk.CheckName())
 			} else {
 				logger.Warn("could not fetch CI logs — Claude will reproduce locally", "check", chk.CheckName(), "err", err)
@@ -333,19 +318,16 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		MaxTokens:     p.cfg.AgentMaxTokens,
 	})
 
-	// Killed via /kill — skip error handling and let the defer clean up.
 	if p.isKilled(identifier) {
 		logger.Info("run killed by user")
 		return
 	}
 
-	// Don't record a shutdown cancellation as an iteration — it would bump the count and could fire the cap warning.
 	if ctx.Err() != nil {
 		logger.Info("iteration cancelled (shutdown)", "reason", ctx.Err())
 		return
 	}
 
-	// Infra failures (timeout/rate-limit) don't increment the iteration count — they weren't real attempts.
 	if errors.Is(runErr, agent.ErrTimedOut) {
 		logger.Warn("iteration timed out — will retry next poll", "timeout", p.cfg.AgentTimeout)
 		return
@@ -356,7 +338,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		p.recordUsage(usage, "iterate", identifier, ch.PR.URL, backend)
 		logger.Warn("iteration aborted: per-run token ceiling reached",
 			"max_tokens", p.cfg.AgentMaxTokens, "tokens", usage.TotalTokens)
-		// A cap abort is a real attempt, not a transient timeout — advance the cursor + count it or the same feedback/CI is re-dispatched and re-burns the cap every poll.
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		p.recordRun(state.RunHistory{
 			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
@@ -369,10 +350,8 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	output := agent.ReadAfter(logFile, offset)
 
-	// Record usage from the iteration (ENG-217).
 	p.budget.Record(usage.TotalTokens, usage.CostUSD)
 	p.recordUsage(usage, "iterate", identifier, ch.PR.URL, backend)
-	// Budget pause takes effect on the next poll tick; in-flight work drains.
 	if reason := p.budget.ExceededReason(); reason != "" {
 		p.flagBudgetExceeded(reason)
 		p.notifier.Send(ctx, fmt.Sprintf(
@@ -380,7 +359,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 			notify.EscapeMarkdown(reason)))
 	}
 
-	// Classified only on a failed run (see rateLimited) — a successful iteration mentioning "rate limit" isn't a real limit.
 	if rateLimited(backend, runErr, output) {
 		logger.Warn("rate limit detected during iteration")
 		p.flagRateLimit()
@@ -405,7 +383,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 				"🚧 **Noctra: blocked on PR feedback**\n\n> %s\n\nLeft the PR as-is. Reply to the PR with clarification, then move the ticket to **%s** to retry.",
 				blocked, p.cfg.TriggerState))
 		}
-		// Advance cursor + count attempt so we don't loop on the same feedback.
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 		p.recordRun(state.RunHistory{
 			Identifier: identifier, TicketID: identifier, PRURL: ch.PR.URL,
@@ -418,7 +395,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 
 	summary := strings.TrimSpace(agent.ExtractSummary(output))
 
-	// Stage+commit anything pending and push whenever the branch is ahead — the agent may self-commit, so gating on a dirty worktree alone drops its commits (ENG-182).
 	if err := runIn(ctx, wt.Path, "git", "add", "-A"); err != nil {
 		logger.Error("git add failed", "err", err)
 		p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
@@ -471,7 +447,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 		})
 		return
 	}
-	// Key "addressed" on HEAD moving, not branch-ahead: the agent may self-push.
 	headAfter := gitHead(ctx, wt.Path)
 	moved := headBefore != "" && headAfter != headBefore
 	if moved || ahead {
@@ -542,7 +517,6 @@ func (p *Pipeline) iteratePR(ctx context.Context, ch watch.PRChanges, identifier
 	p.recordIteration(ctx, ch, identifier, ch.PR.Number, issueID)
 }
 
-// recordIteration bumps the iteration counter, advances the comment/review cursors, and fires cap-hit notifications on the transition.
 func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, identifier string, prNumber int, issueID string) {
 	var (
 		iterations    int
@@ -608,7 +582,6 @@ func (p *Pipeline) recordIteration(ctx context.Context, ch watch.PRChanges, iden
 	}
 }
 
-// advanceCursor moves the comment/review cursor forward without bumping the iteration counter — for non-actionable polls (APPROVED reviews, skipped bot comments).
 func (p *Pipeline) advanceCursor(ch watch.PRChanges) {
 	if err := p.store.Update(ch.PR.URL, func(r *state.PRState) {
 		if ch.NewestComment.After(r.LastCommentAt) {
@@ -625,7 +598,6 @@ func (p *Pipeline) advanceCursor(ch watch.PRChanges) {
 	}
 }
 
-// ackEngagement posts a best-effort 👀 on each comment that triggered re-engagement.
 func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 	for _, ev := range ch.Events {
 		if ev.Type != watch.EventComment || ev.CommentID == "" {
@@ -637,7 +609,6 @@ func (p *Pipeline) ackEngagement(ctx context.Context, ch watch.PRChanges) {
 	}
 }
 
-// postIterationReplies routes per-finding statuses to their review threads (resolving only addressed ones; sha empty on a no-diff iteration), falling back to one conversation comment when none parse.
 func (p *Pipeline) postIterationReplies(ctx context.Context, ch watch.PRChanges, agentOutput, sha, convReply string, logger *slog.Logger) {
 	threadReplies := map[int64]github.ThreadReply{}
 	if findings, ok := agent.ExtractFindingReplies(agentOutput); ok {
@@ -689,8 +660,6 @@ func (p *Pipeline) replyToConversation(ctx context.Context, ch watch.PRChanges, 
 	}
 }
 
-// shouldPostFallbackComment gates the single standalone comment when no per-thread reply was posted.
-// Requires len(ch.Events) > 0 so a CI-only re-engagement — which has no one to answer — stays silent.
 func shouldPostFallbackComment(ch watch.PRChanges, threadReplyCount int) bool {
 	return threadReplyCount == 0 && len(ch.Events) > 0
 }
@@ -720,7 +689,6 @@ func conversationCommentAuthors(ch watch.PRChanges) []string {
 	return mentions
 }
 
-// engagementSummary is a short description of why Noctra is re-engaging — used in the Telegram heads-up and commit message.
 func engagementSummary(ch watch.PRChanges) string {
 	hasFeedback := len(ch.Events) > 0
 	hasCI := ch.CIFailure != nil
@@ -734,7 +702,6 @@ func engagementSummary(ch watch.PRChanges) string {
 	}
 }
 
-// prRepoOwnerRepo extracts owner/name from a PR URL like https://github.com/owner/name/pull/N.
 func prRepoOwnerRepo(prURL string) (string, error) {
 	u, err := url.Parse(prURL)
 	if err != nil {
@@ -747,7 +714,6 @@ func prRepoOwnerRepo(prURL string) (string, error) {
 	return parts[0] + "/" + parts[1], nil
 }
 
-// identifierFromBranch turns "noctra/eng-42" into "ENG-42", or "" for non-Noctra branches.
 func identifierFromBranch(branch string) string {
 	if !strings.HasPrefix(branch, "noctra/") {
 		return ""
@@ -755,8 +721,6 @@ func identifierFromBranch(branch string) string {
 	return strings.ToUpper(strings.TrimPrefix(branch, "noctra/"))
 }
 
-// displayName is the human-facing notification label: ticket IDs pass through, but the shouty sweep
-// identifier is rendered like the sweep loop's own notices — "Sweep: lint-cleanup on my-repo".
 func displayName(identifier string) string {
 	if repoSlug, task, ok := sweep.ParseSweepIdentifier(identifier); ok {
 		return fmt.Sprintf("Sweep: %s on %s", task, repoSlug)
@@ -764,8 +728,6 @@ func displayName(identifier string) string {
 	return identifier
 }
 
-// capReason summarizes why a PR exhausted its iterations: the last attempt's reasoning (first line)
-// plus a link to the failing CI run when recorded.
 func capReason(reasoning, ciRunURL string) string {
 	summary := strings.TrimSpace(strings.SplitN(strings.TrimSpace(reasoning), "\n", 2)[0])
 	if r := []rune(summary); len(r) > 300 {

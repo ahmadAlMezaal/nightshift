@@ -21,7 +21,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
 
-// runSweepLoop is the sweep-scheduler loop, started by Run when cfg.SweepEnabled is on; shares the WaitGroup so shutdown drains in-flight tasks.
 func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
@@ -51,7 +50,6 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 			return
 		}
 
-		// Wait for a budget pause to expire rather than skipping the whole sweep interval.
 		if paused, until, reason := p.budget.IsPaused(); paused {
 			if manual != nil {
 				p.refuseManualSweep(ctx, "budget paused: "+reason)
@@ -83,7 +81,6 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 
 		if manual != nil {
 			slog.Info("sweep: manual trigger", "tasks", manual.Tasks, "repos", manual.Repos, "forced", manual.IgnoreCooldown)
-			// Deliberately no MarkSwept: an ad-hoc sweep must not shift the scheduled cadence.
 			p.sweepOnce(ctx, wg, *manual)
 			continue
 		}
@@ -93,8 +90,6 @@ func (p *Pipeline) runSweepLoop(ctx context.Context, wg *sync.WaitGroup) {
 	}
 }
 
-// TriggerSweep queues an out-of-band sweep cycle for runSweepLoop to dispatch on its next wake-up.
-// It does not wait for the cycle to finish; progress lands in the log and the configured notifiers.
 func (p *Pipeline) TriggerSweep(opts sweep.PlanOptions) error {
 	if p.sweeper == nil {
 		return errors.New("sweeps are disabled — set SWEEP_ENABLED=true")
@@ -107,7 +102,6 @@ func (p *Pipeline) TriggerSweep(opts sweep.PlanOptions) error {
 	}
 }
 
-// SweepTaskNames lists registered sweep tasks so callers can validate a --task filter before queueing.
 func (p *Pipeline) SweepTaskNames() []string {
 	if p.sweeper == nil {
 		return nil
@@ -142,7 +136,6 @@ func (p *Pipeline) branchFromLinearDirective(ctx context.Context, ref string) st
 	return ""
 }
 
-// sweepOnce runs one sweep cycle: plan eligible jobs and dispatch them.
 func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup, opts sweep.PlanOptions) {
 	jobs := p.sweeper.PlanWith(ctx, opts)
 	if len(jobs) == 0 {
@@ -199,7 +192,6 @@ func (p *Pipeline) sweepOnce(ctx context.Context, wg *sync.WaitGroup, opts sweep
 	}
 }
 
-// processSweepTask runs one sweep task's full lifecycle: worktree → agent → check output → commit/push → PR.
 func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifier string) {
 	startedAt := time.Now()
 	logger := slog.With("sweep_task", job.Task.Name, "repo", job.RepoSlug, "id", identifier)
@@ -250,7 +242,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		MaxTokens: sweepMaxTokens,
 	})
 
-	// Killed or shutdown — clean up without recording.
 	if p.isKilled(identifier) {
 		logger.Info("sweep task killed by user")
 		return
@@ -270,7 +261,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		p.recordUsage(usage, "sweep", identifier, "", backend)
 		logger.Warn("sweep task aborted: per-run token ceiling reached",
 			"max_tokens", sweepMaxTokens, "tokens", usage.TotalTokens)
-		// A cap abort is a real attempt, not a transient timeout — record the cooldown or the same repo/task stays eligible and re-burns the cap next cycle.
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}
@@ -304,7 +294,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 
 	if runErr != nil {
 		logger.Warn("sweep agent exited with error", "err", runErr)
-		// Record even on failure so the cooldown is respected.
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
 			logger.Warn("could not record sweep run in state", "err", err)
 		}
@@ -316,7 +305,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 		return
 	}
 
-	// BLOCKED — nothing to do for this task on this repo.
 	if blocked := agent.BlockedLine(output); blocked != "" {
 		logger.Info("sweep task blocked (nothing to do)", "reason", blocked)
 		if err := p.sweeper.RecordRun(job.RepoSlug, job.Task.Name); err != nil {
@@ -380,7 +368,6 @@ func (p *Pipeline) processSweepTask(ctx context.Context, job sweep.Job, identifi
 	}
 	logger.Info("pushed", "branch", wt.Branch)
 
-	// ── Gemini review gate (optional) ────────────────────────────────────────
 	reviewPassed := true
 	reviewSkipped := false
 	var reviewBody string

@@ -11,10 +11,8 @@ import (
 	"time"
 )
 
-// baseCLIs are the always-needed external commands; the per-backend agent CLI is appended (see AgentCLI/RequiredCLIs).
 var baseCLIs = []string{"git", "gh"}
 
-// agentCLIs maps a backend name to the CLI binary it requires on PATH.
 var agentCLIs = map[string]string{
 	"claude":      "claude",
 	"codex":       "codex",
@@ -22,21 +20,18 @@ var agentCLIs = map[string]string{
 	"antigravity": "agy",
 }
 
-// DefaultConfigDir returns the per-user config dir (~/.noctra/) for .env and logs/; the cwd-checkout override in resolveScriptDir wins during development.
 func DefaultConfigDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".noctra")
 }
 
-// legacyPathMigrations maps old ~/.nightshift* paths to ~/.noctra* so the ENG-204 rename keeps a live instance's state.
 var legacyPathMigrations = [][2]string{
-	{".nightshift", ".noctra"},                       // config dir (.env + logs/)
-	{".nightshift-repos", ".noctra-repos"},           // clone cache
-	{".nightshift-worktrees", ".noctra-worktrees"},   // per-ticket worktrees
-	{".nightshift-state.json", ".noctra-state.json"}, // legacy JSON state store
+	{".nightshift", ".noctra"},
+	{".nightshift-repos", ".noctra-repos"},
+	{".nightshift-worktrees", ".noctra-worktrees"},
+	{".nightshift-state.json", ".noctra-state.json"},
 }
 
-// MigrateLegacyPaths renames surviving ~/.nightshift* paths to ~/.noctra* only when the old exists and new doesn't (safe no-op, never clobbers); best-effort, a failed rename only warns.
 func MigrateLegacyPaths() {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
@@ -46,10 +41,10 @@ func MigrateLegacyPaths() {
 		oldPath := filepath.Join(home, m[0])
 		newPath := filepath.Join(home, m[1])
 		if _, err := os.Stat(oldPath); err != nil {
-			continue // nothing to migrate
+			continue
 		}
 		if _, err := os.Stat(newPath); !os.IsNotExist(err) {
-			continue // new path exists (or stat failed) — don't clobber
+			continue
 		}
 		if err := os.Rename(oldPath, newPath); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: could not migrate %s -> %s: %v\n", oldPath, newPath, err)
@@ -59,7 +54,6 @@ func MigrateLegacyPaths() {
 	}
 }
 
-// Defaults applied when a setting is absent from .env and the environment; exported so tests and the wizard can reference them.
 const (
 	DefaultLinearTeamKey    = "ENG"
 	DefaultTicketSources    = "linear"
@@ -78,52 +72,39 @@ const (
 	DefaultGeminiModel      = "gemini-2.5-pro"
 	DefaultMaxReviewRetries = 1
 
-	// Auto-iterate (ENG-173) — disabled by default; opt in via .env.
 	DefaultMaxPRIterations = 3
 	DefaultPRPollInterval  = 2 * time.Minute
 
-	// Auto-release-label (ENG-231) — disabled by default; opt in via .env.
 	DefaultReleaseBump = "patch"
 
-	// Budget / cost-aware management (ENG-217).
 	DefaultRateLimitStrategy = "pause"
 	DefaultRateLimitCooldown = 30 * time.Minute
 
-	// Sweep — autonomous maintenance (ENG-222) — disabled by default.
-	DefaultSweepInterval = 24 * time.Hour
-	DefaultSweepMaxTasks = 5
-	DefaultSweepTimeout  = 20 * time.Minute
-	// Maintenance work that needs more than this is mis-scoped, not close to finishing: a productive
-	// sweep lands around 0.6M tokens, while a runaway bug-scan burned the old 8M ceiling in 4.5min
-	// (~$12) and shipped nothing. Raise deliberately via AGENT_MAX_TOKENS.
+	DefaultSweepInterval  = 24 * time.Hour
+	DefaultSweepMaxTasks  = 5
+	DefaultSweepTimeout   = 20 * time.Minute
 	DefaultSweepMaxTokens = 2_000_000
 
-	// Jira defaults.
 	DefaultJiraInReviewStatus = "In Review"
 
-	// Plan-confirm (ENG-221) — disabled by default; opt in via .env.
 	DefaultPlanConfirmLabel = "plan-first"
 
 	SuggestedTrustedReviewer = "chatgpt-codex-connector"
 )
 
-// Config is Noctra's resolved runtime configuration.
 type Config struct {
-	// Ticket sources
-	TicketSources      []string // active sources: "linear", "github", "jira"
-	GitHubIssuesRepos  []string // owner/name or git URLs polled by the GitHub Issues source
+	TicketSources      []string
+	GitHubIssuesRepos  []string
 	GitHubTriggerLabel string
 
-	// Jira
-	JiraBaseURL        string // e.g. "https://your-org.atlassian.net"
-	JiraUserEmail      string // Jira account email for basic auth
-	JiraAPIToken       string // Jira API token
-	JiraProject        string // Jira project key, e.g. "PROJ"
-	JiraTriggerStatus  string // status name that triggers dispatch
-	JiraTriggerLabel   string // optional: label that triggers dispatch instead of status
-	JiraInReviewStatus string // status name after PR is opened
+	JiraBaseURL        string
+	JiraUserEmail      string
+	JiraAPIToken       string
+	JiraProject        string
+	JiraTriggerStatus  string
+	JiraTriggerLabel   string
+	JiraInReviewStatus string
 
-	// Linear
 	LinearAPIKey            string
 	LinearOAuthToken        string
 	LinearOAuthClientID     string
@@ -131,85 +112,71 @@ type Config struct {
 	LinearOAuthRefreshToken string
 	LinearOAuthScope        string
 	LinearTeamKey           string
-	TriggerMode             string // "state" (default) or "label"
-	TriggerState            string // watched column name (state mode)
-	TriggerLabel            string // label name to watch (label mode)
+	TriggerMode             string
+	TriggerState            string
+	TriggerLabel            string
 	InReviewState           string
 	DoneState               string
 
-	// Repos
-	RepoPath   string // optional single-repo fallback for unmapped projects
+	RepoPath   string
 	MainBranch string
 
-	// Agent
-	AgentBackend  string // coding-agent CLI: "claude" (default), "codex", "copilot", or "antigravity"
+	AgentBackend  string
 	MaxConcurrent int
 	PollInterval  time.Duration
 	UseAgentTeams bool
 	AgentTimeout  time.Duration
 
-	// Safety guards
 	MaxDispatches int
 	MaxRetries    int
 
-	// Notifications (optional) — one or more platforms can be active at once.
 	TelegramEnabled  bool
 	TelegramBotToken string
 	TelegramChatID   string
 
-	// A non-empty webhook URL enables the platform; no separate flag.
 	SlackWebhookURL string
 
 	DiscordWebhookURL string
 
-	// VerboseNotifications notifies on every dispatch (plan/sweep included) via all notifiers; off by default (terminal events only).
 	VerboseNotifications bool
 
-	// Gemini review gate (optional)
 	GeminiMode       string
 	GeminiAPIKey     string
 	GeminiModel      string
 	MaxReviewRetries int
 
-	// Auto-iterate on PR review feedback (ENG-173) — off by default.
 	AutoIteratePRs   bool
 	MaxPRIterations  int
 	PRPollInterval   time.Duration
-	TrustedReviewers []string // GitHub logins/bots Noctra will act on (default: humans only)
-	StateDB          string   // SQLite state database path
-	StateFile        string   // legacy JSON state file migration source
+	TrustedReviewers []string
+	StateDB          string
+	StateFile        string
 
-	// Auto-release-label (ENG-231) — off by default; applies a release:* label at PR creation from the agent's RELEASE: line.
 	AutoReleaseLabel   bool
-	DefaultReleaseBump string // "patch" (default), "minor", or "major"
+	DefaultReleaseBump string
 
-	// Budget / cost-aware management (ENG-217).
-	MaxDailyTokens    int64   // daily token cap, 0 = unlimited
-	MaxDailyUSD       float64 // daily dollar cap, 0 = unlimited
+	MaxDailyTokens    int64
+	MaxDailyUSD       float64
 	AgentMaxTokens    int64
-	RateLimitStrategy string        // "pause" (default) or "shutdown"
-	RateLimitCooldown time.Duration // pause duration after rate limit (default 30m)
+	RateLimitStrategy string
+	RateLimitCooldown time.Duration
 
-	// Sweep — autonomous maintenance (ENG-222) — off by default.
-	SweepEnabled  bool          // opt-in maintenance sweep scheduler
-	SweepSchedule string        // cron expression (e.g. "0 2 * * *"); empty = use SweepInterval
-	SweepInterval time.Duration // fallback fixed interval when no cron (default 24h)
-	SweepMaxTasks int           // max tasks per sweep run (default 5)
+	SweepEnabled  bool
+	SweepSchedule string
+	SweepInterval time.Duration
+	SweepMaxTasks int
 	SweepTimeout  time.Duration
-	SweepTasks    []string // enabled task names (nil = all registered tasks)
-	SweepRepos    []string // explicit repos to sweep (owner/name or URL); nil = all cloned
+	SweepTasks    []string
+	SweepRepos    []string
 
-	// Plan-confirm (ENG-221) — off by default; runs the agent plan-only, posts the plan, and waits for human approval before implementing.
-	PlanConfirm      bool   // global opt-in for plan-confirm on all tickets
-	PlanConfirmLabel string // label name that activates plan-confirm per-ticket (default "plan-first")
+	PlanConfirm      bool
+	PlanConfirmLabel string
 
-	// Dashboard (ENG-274) — off by default; DASHBOARD_ADDR serves a read-only snapshot UI.
-	DashboardAddr       string // listen address (e.g. ":8080"); empty = dashboard disabled
-	DashboardToken      string // required Bearer token for all dashboard requests (read-only)
-	DashboardAdminToken string // optional Bearer token for mutating control endpoints (kill/requeue/pause/retry)
-	DashboardSSH        string // SSH target (user@host) for `noctra dashboard` to tunnel to
+	DashboardAddr       string
+	DashboardToken      string
+	DashboardAdminToken string
+	DashboardSSH        string
 
-	// Derived paths
 	ScriptDir    string
 	EnvFile      string
 	ReposBase    string
@@ -217,9 +184,8 @@ type Config struct {
 	LogDir       string
 }
 
-// Load resolves config from .env (in scriptDir) and the environment; .env wins over the environment (matching the bash predecessor).
 func Load(scriptDir string) (*Config, error) {
-	MigrateLegacyPaths() // before path resolution, so an upgrade keeps its state
+	MigrateLegacyPaths()
 
 	envFile := filepath.Join(scriptDir, ".env")
 	fileEnv, err := LoadEnvFile(envFile)
@@ -283,7 +249,6 @@ func Load(scriptDir string) (*Config, error) {
 		cfg.GitHubTriggerLabel = cfg.TriggerLabel
 	}
 
-	// Jira
 	cfg.JiraBaseURL = getenv(fileEnv, "JIRA_BASE_URL", "")
 	cfg.JiraUserEmail = getenv(fileEnv, "JIRA_USER_EMAIL", "")
 	cfg.JiraAPIToken = getenv(fileEnv, "JIRA_API_TOKEN", "")
@@ -298,7 +263,6 @@ func Load(scriptDir string) (*Config, error) {
 	timeoutMin := getint(fileEnv, "AGENT_TIMEOUT_MINUTES", int(DefaultAgentTimeout/time.Minute))
 	cfg.AgentTimeout = time.Duration(timeoutMin) * time.Minute
 
-	// Auto-iterate
 	cfg.AutoIteratePRs = getbool(fileEnv, "AUTO_ITERATE_PRS", false)
 	cfg.MaxPRIterations = getint(fileEnv, "MAX_PR_ITERATIONS", DefaultMaxPRIterations)
 	prPollSecs := getint(fileEnv, "PR_POLL_INTERVAL", int(DefaultPRPollInterval/time.Second))
@@ -307,11 +271,9 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.StateFile = getenv(fileEnv, "STATE_FILE", filepath.Join(home, ".noctra-state.json"))
 	cfg.StateDB = getenv(fileEnv, "STATE_DB", filepath.Join(DefaultConfigDir(), "state.db"))
 
-	// Auto-release-label
 	cfg.AutoReleaseLabel = getbool(fileEnv, "AUTO_RELEASE_LABEL", false)
 	cfg.DefaultReleaseBump = strings.ToLower(strings.TrimSpace(getenv(fileEnv, "DEFAULT_RELEASE_BUMP", DefaultReleaseBump)))
 
-	// Budget / cost-aware management (ENG-217)
 	cfg.MaxDailyTokens = int64(getint(fileEnv, "MAX_DAILY_TOKENS", 0))
 	cfg.MaxDailyUSD = getfloat(fileEnv, "MAX_DAILY_USD", 0)
 	cfg.AgentMaxTokens = int64(getint(fileEnv, "AGENT_MAX_TOKENS", 0))
@@ -319,7 +281,6 @@ func Load(scriptDir string) (*Config, error) {
 	cooldownSecs := getint(fileEnv, "RATE_LIMIT_COOLDOWN", int(DefaultRateLimitCooldown/time.Second))
 	cfg.RateLimitCooldown = time.Duration(cooldownSecs) * time.Second
 
-	// Sweep — autonomous maintenance (ENG-222)
 	cfg.SweepEnabled = getbool(fileEnv, "SWEEP_ENABLED", false)
 	cfg.SweepSchedule = getenv(fileEnv, "SWEEP_SCHEDULE", "")
 	sweepIntervalSecs := getint(fileEnv, "SWEEP_INTERVAL", int(DefaultSweepInterval/time.Second))
@@ -330,11 +291,9 @@ func Load(scriptDir string) (*Config, error) {
 	cfg.SweepTasks = getlist(fileEnv, "SWEEP_TASKS")
 	cfg.SweepRepos = getlist(fileEnv, "SWEEP_REPOS")
 
-	// Plan-confirm (ENG-221)
 	cfg.PlanConfirm = getbool(fileEnv, "PLAN_CONFIRM", false)
 	cfg.PlanConfirmLabel = getenv(fileEnv, "PLAN_CONFIRM_LABEL", DefaultPlanConfirmLabel)
 
-	// Dashboard (ENG-274)
 	cfg.DashboardAddr = getenv(fileEnv, "DASHBOARD_ADDR", "")
 	cfg.DashboardToken = getenv(fileEnv, "DASHBOARD_TOKEN", "")
 	cfg.DashboardAdminToken = getenv(fileEnv, "DASHBOARD_ADMIN_TOKEN", "")
@@ -343,7 +302,6 @@ func Load(scriptDir string) (*Config, error) {
 	return cfg, nil
 }
 
-// Validate checks required fields; REPO_PATH is not required since repos resolve per-ticket from "Repo:" directives (unresolvable tickets are skipped, not startup-fatal).
 func (c *Config) Validate() error {
 	var errs []string
 	sources := c.TicketSources
@@ -361,7 +319,6 @@ func (c *Config) Validate() error {
 
 	switch c.TriggerMode {
 	case "state":
-		// trigger state always has a default — nothing to validate
 	case "label":
 		if c.TriggerLabel == "" {
 			errs = append(errs, "TRIGGER_LABEL is required when TRIGGER_MODE=label")
@@ -441,7 +398,6 @@ func (c *Config) OAuthPartiallyConfigured() bool {
 	return (c.LinearOAuthClientID != "") != (c.LinearOAuthClientSecret != "")
 }
 
-// UsesTicketSource reports whether a named source is active.
 func (c *Config) UsesTicketSource(name string) bool {
 	sources := c.TicketSources
 	if len(sources) == 0 {
@@ -459,7 +415,6 @@ func usesSource(sources []string, name string) bool {
 	return false
 }
 
-// AgentCLI returns the configured backend's CLI binary, falling back to the default backend's when unset/unknown.
 func (c *Config) AgentCLI() string {
 	if cli, ok := agentCLIs[c.AgentBackend]; ok {
 		return cli
@@ -467,7 +422,6 @@ func (c *Config) AgentCLI() string {
 	return agentCLIs[DefaultAgentBackend]
 }
 
-// RequiredCLIs returns the base CLIs plus the configured backend's agent CLI.
 func (c *Config) RequiredCLIs() []string {
 	clis := make([]string, 0, len(baseCLIs)+1)
 	clis = append(clis, baseCLIs...)
@@ -475,7 +429,6 @@ func (c *Config) RequiredCLIs() []string {
 	return clis
 }
 
-// AllCandidateCLIs returns the base CLIs plus every backend's CLI, so the doctor can flag backends a per-ticket "agent:" label might request.
 func (c *Config) AllCandidateCLIs() []string {
 	seen := map[string]bool{}
 	clis := make([]string, 0, len(baseCLIs)+len(agentCLIs))
@@ -485,7 +438,6 @@ func (c *Config) AllCandidateCLIs() []string {
 			seen[cli] = true
 		}
 	}
-	// sort so output is deterministic (map iteration is randomized)
 	sorted := make([]string, 0, len(agentCLIs))
 	for _, cli := range agentCLIs {
 		sorted = append(sorted, cli)
@@ -500,7 +452,6 @@ func (c *Config) AllCandidateCLIs() []string {
 	return clis
 }
 
-// CheckCLIs returns the RequiredCLIs missing from PATH (the soft check for run/cleanup/wizard, vs Validate's hard config errors).
 func (c *Config) CheckCLIs() (missing []string) {
 	for _, cmd := range c.RequiredCLIs() {
 		if _, err := exec.LookPath(cmd); err != nil {
@@ -510,7 +461,6 @@ func (c *Config) CheckCLIs() (missing []string) {
 	return missing
 }
 
-// AgentCLIs returns every backend's CLI binary keyed by backend name, for doctor/wizard hints without a loaded Config.
 func AgentCLIs() map[string]string {
 	out := make(map[string]string, len(agentCLIs))
 	for k, v := range agentCLIs {
@@ -524,7 +474,6 @@ func isGitRepo(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// getenv returns the first non-empty of fileEnv[key], os.Getenv(key), def (.env wins, matching the bash predecessor).
 func getenv(fileEnv map[string]string, key, def string) string {
 	if v, ok := fileEnv[key]; ok && v != "" {
 		return v
@@ -535,7 +484,6 @@ func getenv(fileEnv map[string]string, key, def string) string {
 	return def
 }
 
-// verboseNotifications resolves VERBOSE_NOTIFICATIONS, honoring the deprecated TELEGRAM_VERBOSE alias (with a warning) for back-compat.
 func verboseNotifications(fileEnv map[string]string) bool {
 	if getenv(fileEnv, "VERBOSE_NOTIFICATIONS", "") != "" {
 		return getbool(fileEnv, "VERBOSE_NOTIFICATIONS", false)
@@ -585,7 +533,6 @@ func getint(fileEnv map[string]string, key string, def int) int {
 	return n
 }
 
-// getlist parses a comma-separated value into a trimmed, empty-filtered slice; nil when absent (vs an empty configured list).
 func getlist(fileEnv map[string]string, key string) []string {
 	v := getenv(fileEnv, key, "")
 	if v == "" {

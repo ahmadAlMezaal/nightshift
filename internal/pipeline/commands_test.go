@@ -84,14 +84,12 @@ func TestHandleStatus_Active(t *testing.T) {
 	if !strings.Contains(reply, "ENG-44") {
 		t.Errorf("expected ENG-44 in reply, got %q", reply)
 	}
-	// Session-cumulative counts.
 	if !strings.Contains(reply, "9 PRs created") {
 		t.Errorf("expected session success count in reply, got %q", reply)
 	}
 	if !strings.Contains(reply, "4 failed") {
 		t.Errorf("expected session fail count in reply, got %q", reply)
 	}
-	// Today (UTC) counts — distinct window from the session totals.
 	if !strings.Contains(reply, "2 PRs created") {
 		t.Errorf("expected daily success count in reply, got %q", reply)
 	}
@@ -140,10 +138,8 @@ func TestHandleKill_Active(t *testing.T) {
 	if !strings.Contains(reply, "Killed") {
 		t.Errorf("expected 'Killed' in reply, got %q", reply)
 	}
-	// Verify the context was cancelled.
 	select {
 	case <-ticketCtx.Done():
-		// expected
 	default:
 		t.Error("expected ticket context to be cancelled after kill")
 	}
@@ -292,7 +288,6 @@ func TestHandleRequeue_LabelMode(t *testing.T) {
 
 		switch {
 		case strings.Contains(req.Query, "issue(id:") && strings.Contains(req.Query, "labels"):
-			// AddLabel: fetch current labels
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"issue": map[string]any{
@@ -303,7 +298,6 @@ func TestHandleRequeue_LabelMode(t *testing.T) {
 				},
 			})
 		case strings.Contains(req.Query, "issue(id:"):
-			// GetIssueByIdentifier
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"data": map[string]any{
 					"issue": map[string]any{
@@ -404,7 +398,6 @@ func TestHandleRequeue_NoContext(t *testing.T) {
 		states: linear.StateIDs{Trigger: "state-trigger-id"},
 	}
 
-	// Requeue without extra context — should skip comment.
 	reply := p.handleRequeue(context.Background(), "ENG-42")
 	if !strings.Contains(reply, "requeued") {
 		t.Errorf("expected 'requeued' in reply, got %q", reply)
@@ -785,8 +778,6 @@ func TestParseMoveArgs(t *testing.T) {
 	}
 }
 
-// ticketCountServer returns a Linear server that answers the ProjectIssueCounts
-// query with two states (Backlog x2, Next x1) and records the requested project.
 func ticketCountServer(t *testing.T, gotProject *string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -875,7 +866,7 @@ func TestHandleTicket(t *testing.T) {
 	client.Endpoint = srv.URL
 
 	p := &Pipeline{cfg: &config.Config{LinearTeamKey: "ENG"}, linear: client}
-	reply := p.handleTicket(context.Background(), "42") // number-only → ENG-42
+	reply := p.handleTicket(context.Background(), "42")
 	for _, want := range []string{"ENG-42", "Fix login", "In Review", "Noctra", "Ada Lovelace"} {
 		if !strings.Contains(reply, want) {
 			t.Errorf("expected %q in reply, got %q", want, reply)
@@ -932,7 +923,7 @@ func TestSnippet(t *testing.T) {
 	if !strings.HasSuffix(got, "…") {
 		t.Errorf("expected ellipsis on truncation, got %q", got)
 	}
-	if len([]rune(got)) != 281 { // 280 runes + ellipsis
+	if len([]rune(got)) != 281 {
 		t.Errorf("expected 280 runes + ellipsis, got %d runes", len([]rune(got)))
 	}
 }
@@ -953,26 +944,21 @@ func TestHandleStatus_UptimeFormat(t *testing.T) {
 	}
 }
 
-// TestHandleStatus_RollsWindowBeforeRead locks in ENG-352 requirement 1: /status
-// invoked after UTC midnight (before any poll) must show 0 for today, not the
-// prior day's counts left over in the fields.
 func TestHandleStatus_RollsWindowBeforeRead(t *testing.T) {
 	p := &Pipeline{
 		cfg: &config.Config{
 			MaxConcurrent: 3,
 			MaxDispatches: 25,
 		},
-		budget: budget.New(budget.Config{}),
-		active: map[string]struct{}{},
-		// Yesterday's window with yesterday's counts still populated.
+		budget:            budget.New(budget.Config{}),
+		active:            map[string]struct{}{},
 		dispatchWindow:    time.Now().UTC().Truncate(24 * time.Hour).Add(-24 * time.Hour),
 		totalDispatches:   13,
 		dailySuccessCount: 13,
 		dailyFailCount:    2,
-		// Session totals survive the roll.
-		successCount: 13,
-		failCount:    2,
-		sessionStart: time.Now().Add(-133 * time.Hour),
+		successCount:      13,
+		failCount:         2,
+		sessionStart:      time.Now().Add(-133 * time.Hour),
 	}
 	reply := p.handleStatus(context.Background(), "")
 	if !strings.Contains(reply, "0/25 ticket dispatches") {
@@ -981,7 +967,6 @@ func TestHandleStatus_RollsWindowBeforeRead(t *testing.T) {
 	if !strings.Contains(reply, "*Today (UTC):*\n✅ 0 PRs created\n❌ 0 failed") {
 		t.Errorf("expected today's PR/fail counts rolled to 0, got %q", reply)
 	}
-	// The session-cumulative block keeps the running totals.
 	if !strings.Contains(reply, "13 PRs created") || !strings.Contains(reply, "2 failed") {
 		t.Errorf("expected session totals preserved, got %q", reply)
 	}

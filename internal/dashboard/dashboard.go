@@ -1,4 +1,3 @@
-// Package dashboard serves the HTTP pipeline-snapshot dashboard: reads require the dashboard token, mutating controls the admin token.
 package dashboard
 
 import (
@@ -26,7 +25,6 @@ var staticFiles embed.FS
 
 type SnapshotFunc func() any
 
-// Controls defines the mutating operations the dashboard can invoke on the pipeline.
 type Controls interface {
 	KillRun(identifier string) error
 	RequeueTicket(ctx context.Context, identifier, extraContext, source string) error
@@ -36,12 +34,11 @@ type Controls interface {
 	TriggerSweep(opts sweep.PlanOptions) error
 }
 
-// Providers supplies the dashboard's data sources; all fields optional — nil degrades to empty responses.
 type Providers struct {
 	Store           *state.Store
 	SweepTasks      []sweep.Task
 	MaxPRIterations int
-	RepoPaths       func() []string // repo.Resolver.AllRepoPaths
+	RepoPaths       func() []string
 	LogDir          string
 	Hub             *Hub
 }
@@ -74,8 +71,6 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 	if s.prov.Hub == nil {
 		s.prov.Hub = NewHub(defaultMaxSubscribers)
 	}
-
-	// ── Read endpoints (read token) ─────────────────────────────────────
 
 	mux.Handle("/api/snapshot", s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -150,8 +145,6 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 		writeJSON(w, map[string]bool{"admin_enabled": s.adminToken != ""})
 	})))
 
-	// ── Control endpoints (admin token) ─────────────────────────────────
-
 	mux.Handle("/api/kill/", s.requireAdmin(http.HandlerFunc(s.handleKill)))
 	mux.Handle("/api/requeue/", s.requireAdmin(http.HandlerFunc(s.handleRequeue)))
 	mux.Handle("/api/pause", s.requireAdmin(http.HandlerFunc(s.handlePause)))
@@ -159,11 +152,8 @@ func New(addr, token, adminToken string, snapshotFn SnapshotFunc, prov Providers
 	mux.Handle("/api/retry/", s.requireAdmin(http.HandlerFunc(s.handleRetry)))
 	mux.Handle("/api/sweep", s.requireAdmin(http.HandlerFunc(s.handleSweep)))
 
-	// ── Static files ────────────────────────────────────────────────────
-
 	staticSub, _ := fs.Sub(staticFiles, "static")
 	fileServer := http.FileServer(http.FS(staticSub))
-	// Fonts are public (no secrets) and must load unauthenticated: @font-face url() subrequests don't carry the page's ?token=, so gating them silently breaks the brand fonts.
 	mux.Handle("/fonts/", fileServer)
 	mux.Handle("/", s.requireAuth(fileServer))
 
@@ -187,7 +177,6 @@ func (s *Server) Handler() http.Handler {
 	return s.srv.Handler
 }
 
-// requireAuth accepts either the read or admin token via header or ?token= query param.
 func (s *Server) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := extractToken(r)
@@ -199,7 +188,6 @@ func (s *Server) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// requireAdmin enforces admin token via header only (no query param) for CSRF safety.
 func (s *Server) requireAdmin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -236,8 +224,6 @@ func extractToken(r *http.Request) string {
 func (s *Server) Hub() *Hub {
 	return s.prov.Hub
 }
-
-// ── Read API handlers ───────────────────────────────────────────────────────
 
 func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 	flusher, ok := w.(http.Flusher)
@@ -576,8 +562,6 @@ func (s *Server) handleCost(w http.ResponseWriter, r *http.Request, store *state
 	writeJSON(w, costResponse{Buckets: buckets})
 }
 
-// ── Control API handlers (admin-gated) ──────────────────────────────────────
-
 func (s *Server) handleKill(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/kill/")
 	if id == "" {
@@ -632,7 +616,6 @@ func (s *Server) handlePause(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"status": "ok", "already_paused": already})
 }
 
-// handleSweep queues an out-of-band sweep cycle; the daemon dispatches it, so this returns as soon as it is accepted.
 func (s *Server) handleSweep(w http.ResponseWriter, r *http.Request) {
 	if s.controls == nil {
 		http.Error(w, "controls not available", http.StatusServiceUnavailable)
@@ -644,7 +627,6 @@ func (s *Server) handleSweep(w http.ResponseWriter, r *http.Request) {
 		Force bool     `json:"force"`
 	}
 	if r.Body != nil {
-		// An empty body is a valid "sweep everything eligible" request.
 		if err := json.NewDecoder(io.LimitReader(r.Body, 8<<10)).Decode(&body); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON body", http.StatusBadRequest)
 			return
@@ -693,7 +675,6 @@ type spendEntry struct {
 	CostUSD     float64 `json:"cost_usd"`
 }
 
-// handleSpend aggregates usage events into per-agent token/cost totals; window defaults to the current UTC day, widened by ?days=N.
 func (s *Server) handleSpend(w http.ResponseWriter, r *http.Request, store *state.Store) {
 	if store == nil {
 		writeJSON(w, []spendEntry{})
@@ -735,8 +716,6 @@ func (s *Server) handleSpend(w http.ResponseWriter, r *http.Request, store *stat
 	}
 	writeJSON(w, entries)
 }
-
-// ── helpers ─────────────────────────────────────────────────────────────────
 
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")

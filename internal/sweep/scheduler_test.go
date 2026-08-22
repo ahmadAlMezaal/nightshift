@@ -116,18 +116,15 @@ func TestScheduler_DueIn(t *testing.T) {
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil, nil)
 
-	// Just created — immediately due (no startup suppression; cooldowns prevent spam).
 	if due := s.DueIn(); due != 0 {
 		t.Errorf("DueIn should be 0 immediately after creation, got %v", due)
 	}
 
-	// After marking swept, should not be due until interval elapses.
 	s.MarkSwept()
 	if due := s.DueIn(); due == 0 {
 		t.Error("DueIn should not be 0 immediately after MarkSwept")
 	}
 
-	// Simulate time passing beyond the interval.
 	s.lastSweep = time.Now().Add(-2 * time.Hour)
 	if due := s.DueIn(); due != 0 {
 		t.Errorf("DueIn should be 0 after interval elapsed, got %v", due)
@@ -139,7 +136,7 @@ func TestScheduler_MarkSwept(t *testing.T) {
 	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 	s := NewScheduler(store, resolver, nil, 1*time.Hour, 5, nil, nil)
 
-	s.lastSweep = time.Now().Add(-2 * time.Hour) // make it due
+	s.lastSweep = time.Now().Add(-2 * time.Hour)
 	s.MarkSwept()
 
 	if due := s.DueIn(); due == 0 {
@@ -161,7 +158,7 @@ func TestScheduler_PlanRespectsMaxTasks(t *testing.T) {
 		testTask("t3", time.Hour),
 	}
 
-	s := NewScheduler(store, resolver, tasks, time.Hour, 2, nil, nil) // max 2
+	s := NewScheduler(store, resolver, tasks, time.Hour, 2, nil, nil)
 
 	jobs := s.Plan(context.Background())
 	if len(jobs) > 2 {
@@ -186,14 +183,12 @@ func TestRoundRobin(t *testing.T) {
 	if got := roundRobin(groups, 4); !eq(got, []int{1, 4, 6, 2}) {
 		t.Errorf("limited spread: got %v, want [1 4 6 2]", got)
 	}
-	// Limit beyond the total drains every group, still interleaved.
 	if got := roundRobin([][]int{{1, 2}, {3}}, 10); !eq(got, []int{1, 3, 2}) {
 		t.Errorf("drain: got %v, want [1 3 2]", got)
 	}
 	if got := roundRobin(groups, 0); got != nil {
 		t.Errorf("zero limit: got %v, want nil", got)
 	}
-	// Inputs must not be mutated.
 	if len(groups[0]) != 3 {
 		t.Errorf("roundRobin mutated its input: %v", groups)
 	}
@@ -235,7 +230,6 @@ func TestScheduler_PlanSpreadsAcrossRepos(t *testing.T) {
 
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
 
-	// 3 repos × 3 tasks, budget 4: first 3 slots go one-each to a, b, c — not 3 from repo-a.
 	tasks := []Task{
 		testTask("t1", time.Hour),
 		testTask("t2", time.Hour),
@@ -275,18 +269,15 @@ func TestScheduler_PlanRespectsCooldown(t *testing.T) {
 
 	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil, nil)
 
-	// Both should be eligible initially.
 	jobs := s.Plan(context.Background())
 	if len(jobs) != 2 {
 		t.Fatalf("expected 2 eligible tasks, got %d", len(jobs))
 	}
 
-	// Record one run.
 	if err := s.RecordRun("my-repo", "task-a"); err != nil {
 		t.Fatal(err)
 	}
 
-	// Now only task-b should be eligible.
 	jobs = s.Plan(context.Background())
 	if len(jobs) != 1 {
 		t.Fatalf("expected 1 eligible task after recording, got %d", len(jobs))
@@ -298,7 +289,7 @@ func TestScheduler_PlanRespectsCooldown(t *testing.T) {
 
 func TestScheduler_PlanNoRepos(t *testing.T) {
 	store, _ := state.Open(filepath.Join(t.TempDir(), "state.json"))
-	resolver := &repo.Resolver{ReposBase: t.TempDir()} // empty
+	resolver := &repo.Resolver{ReposBase: t.TempDir()}
 
 	s := NewScheduler(store, resolver, []Task{testTask("t1", time.Hour)}, time.Hour, 5, nil, nil)
 	jobs := s.Plan(context.Background())
@@ -318,14 +309,12 @@ func TestScheduler_RecordRun(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Verify state persisted.
 	key := state.SweepKey("my-repo", "lint-cleanup")
 	ss := store.GetSweep(key)
 	if ss.LastRunAt.IsZero() {
 		t.Error("LastRunAt should be set after RecordRun")
 	}
 
-	// Verify persists across reopen.
 	store2, err := state.Open(statePath)
 	if err != nil {
 		t.Fatal(err)
@@ -489,7 +478,6 @@ func addOrigin(t *testing.T, dir, url string) {
 	}
 }
 
-// TestPlanWith_IgnoreCooldown is the point of `--force`: a task still on cooldown is dispatched anyway.
 func TestPlanWith_IgnoreCooldown(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "my-repo")
@@ -511,7 +499,6 @@ func TestPlanWith_IgnoreCooldown(t *testing.T) {
 	}
 }
 
-// TestPlanWith_TaskAndRepoFilters narrows a manual sweep to one task and one repo.
 func TestPlanWith_TaskAndRepoFilters(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "alpha-repo")
@@ -522,7 +509,7 @@ func TestPlanWith_TaskAndRepoFilters(t *testing.T) {
 	s := NewScheduler(store, resolver(reposBase), tasks, time.Hour, 10, nil, nil)
 
 	jobs := s.PlanWith(context.Background(), PlanOptions{Tasks: []string{"task-a"}})
-	if len(jobs) != 2 { // task-a on both repos
+	if len(jobs) != 2 {
 		t.Fatalf("task filter: got %d jobs, want 2", len(jobs))
 	}
 	for _, j := range jobs {
@@ -540,7 +527,6 @@ func TestPlanWith_TaskAndRepoFilters(t *testing.T) {
 	}
 }
 
-// TestPlanWith_UnmatchedFilterPlansNothing: a typo'd filter must dispatch nothing, never everything.
 func TestPlanWith_UnmatchedFilterPlansNothing(t *testing.T) {
 	reposBase := t.TempDir()
 	initTestRepo(t, reposBase, "my-repo")

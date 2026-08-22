@@ -99,7 +99,6 @@ func TestParseClaudeJSON_NotJSON(t *testing.T) {
 }
 
 func TestParseClaudeJSON_WrongType(t *testing.T) {
-	// A stream event, not the final result object → fall back to regex parsing.
 	if _, _, ok := ParseClaudeJSON(`{"type":"assistant","message":{}}`); ok {
 		t.Error("expected ok=false for a non-result JSON object")
 	}

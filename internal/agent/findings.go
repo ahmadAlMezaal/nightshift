@@ -5,20 +5,17 @@ import (
 	"strings"
 )
 
-// Finding markers wrap the per-finding status array in the agent's output.
 const (
 	FindingsStartMarker = "===NOCTRA FINDINGS==="
 	FindingsEndMarker   = "===END NOCTRA FINDINGS==="
 )
 
-// FindingReply is the agent's status for one numbered review finding.
 type FindingReply struct {
 	Finding   int    `json:"finding"`
 	Addressed bool   `json:"addressed"`
 	Reply     string `json:"reply"`
 }
 
-// ExtractFindingReplies parses the per-finding JSON array between the finding markers; ok is false when absent, malformed, or empty.
 func ExtractFindingReplies(logContents string) ([]FindingReply, bool) {
 	raw, ok := between(lastAttempt(logContents), FindingsStartMarker, FindingsEndMarker)
 	if !ok {

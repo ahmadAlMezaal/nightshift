@@ -1,11 +1,3 @@
-// Package setup is the interactive wizard that generates .env. It's the
-// friendlier alternative to hand-editing the config file. Repos are routed
-// per-project from the Linear project's `Repo: owner/name` directive.
-//
-// On re-run, every prompt is pre-filled with the value currently in .env (or
-// the static default if absent). Press Enter to keep, type to replace. The
-// wizard also offers a "manual mode" that just copies the example template
-// into place for users who prefer to edit by hand.
 package setup
 
 import (
@@ -26,7 +18,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/sweep"
 )
 
-// Run drives the wizard. It writes scriptDir/.env.
 func Run(scriptDir string) error {
 	envFile := filepath.Join(scriptDir, ".env")
 
@@ -46,8 +37,6 @@ func Run(scriptDir string) error {
 
 	switch w.chooseMode() {
 	case "manual":
-		// Reuse the wizard's scanner so we don't risk dropping buffered
-		// bytes by constructing a second Scanner on os.Stdin.
 		return runManual(scriptDir, w.in)
 	}
 	fmt.Println()
@@ -159,15 +148,12 @@ func Run(scriptDir string) error {
 	timeoutMin := w.askInt("Agent timeout (minutes)", existingEnv["AGENT_TIMEOUT_MINUTES"], int(config.DefaultAgentTimeout/time.Minute), 5)
 	fmt.Println()
 
-	// ── Optional: Auto-iterate on PR feedback ─────────────────────────────────
 	autoIterate, maxIter, prPoll, trusted := w.collectAutoIterate(existingEnv)
 
 	sweepEnabled, sweepTasks, sweepSchedule, sweepRepos, sweepMaxTasks := w.collectSweep(existingEnv)
 
-	// ── Optional: Dashboard ───────────────────────────────────────────────────
 	dashboardAddr, dashboardToken := w.collectDashboard(existingEnv)
 
-	// ── Optional: Gemini review gate ───────────────────────────────────────────
 	geminiKey := ""
 	geminiMode := existingEnv["GEMINI_MODE"]
 	if geminiMode == "" {
@@ -192,7 +178,6 @@ func Run(scriptDir string) error {
 		geminiMode = config.DefaultGeminiMode
 	}
 
-	// ── Optional: Telegram ─────────────────────────────────────────────────────
 	tgEnabled, tgToken, tgChat := "false", "", ""
 	tgWasEnabled := strings.EqualFold(existingEnv["TELEGRAM_ENABLED"], "true")
 	prompt := "Enable Telegram notifications?"
@@ -216,8 +201,6 @@ func Run(scriptDir string) error {
 		}
 	}
 
-	// ── Optional: Slack ────────────────────────────────────────────────────────
-	// A non-empty webhook URL is the enable signal — there's no separate flag.
 	slackWebhook := ""
 	slackPrompt := "Enable Slack notifications?"
 	if existingEnv["SLACK_WEBHOOK_URL"] != "" {
@@ -238,7 +221,6 @@ func Run(scriptDir string) error {
 		}
 	}
 
-	// ── Optional: Discord ──────────────────────────────────────────────────────
 	discordWebhook := ""
 	discordPrompt := "Enable Discord notifications?"
 	if existingEnv["DISCORD_WEBHOOK_URL"] != "" {
@@ -259,12 +241,8 @@ func Run(scriptDir string) error {
 		}
 	}
 
-	// ── Verbose notifications (applies to every configured notifier) ───────────
 	verboseNotif := "false"
 	if tgEnabled == "true" || slackWebhook != "" || discordWebhook != "" {
-		// Match the runtime parser (config.getbool), which accepts more than
-		// "true" — otherwise an existing VERBOSE_NOTIFICATIONS=1/yes would be
-		// mis-detected as off and silently flipped to false on re-run.
 		isTruthy := func(s string) bool {
 			switch strings.ToLower(strings.TrimSpace(s)) {
 			case "true", "1", "yes", "y":
@@ -273,7 +251,7 @@ func Run(scriptDir string) error {
 			return false
 		}
 		wasVerbose := isTruthy(existingEnv["VERBOSE_NOTIFICATIONS"]) ||
-			isTruthy(existingEnv["TELEGRAM_VERBOSE"]) // deprecated alias
+			isTruthy(existingEnv["TELEGRAM_VERBOSE"])
 		verbosePrompt := "Also notify on every ticket dispatch, plan, and sweep (more chatty)?"
 		if wasVerbose {
 			verbosePrompt = "Verbose notifications are currently on. Keep them?"
@@ -283,7 +261,6 @@ func Run(scriptDir string) error {
 		}
 	}
 
-	// ── Summary + confirm ──────────────────────────────────────────────────────
 	fmt.Println()
 	fmt.Println("─── Summary ───")
 	fmt.Println()
@@ -369,7 +346,6 @@ func Run(scriptDir string) error {
 		return nil
 	}
 
-	// ── Write files ────────────────────────────────────────────────────────────
 	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
 		return fmt.Errorf("create config dir %s: %w", scriptDir, err)
 	}
@@ -412,10 +388,6 @@ func Run(scriptDir string) error {
 		dashboardToken:    dashboardToken,
 	}
 
-	// Merge into existing .env when the file already exists — this preserves
-	// hand-added keys (e.g. LINEAR_OAUTH_TOKEN) that the wizard doesn't
-	// manage. On a fresh install (no .env) the template is written from
-	// scratch so first-run users get an organized, commented file.
 	_, existsErr := os.Stat(envFile)
 	if existsErr == nil {
 		if err := mergeEnvFile(envFile, vals); err != nil {
@@ -435,21 +407,10 @@ func Run(scriptDir string) error {
 	return nil
 }
 
-// runManual copies .env.example → .env, asking before overwriting it. The
-// caller passes its own scanner so we share the same input stream —
-// constructing a second bufio.Scanner on os.Stdin would risk losing bytes the
-// first scanner already buffered.
-//
-// Repos are not scaffolded from a template here: tickets are routed to their
-// repo by the Linear project's `Repo:` directive (a `Repo: owner/name` line in
-// the project description).
 func runManual(scriptDir string, in *bufio.Scanner) error {
 	src := filepath.Join(scriptDir, ".env.example")
 	dst := filepath.Join(scriptDir, ".env")
 	if _, err := os.Stat(src); err != nil {
-		// Manual setup's only job is copying this template — if it's missing
-		// (e.g. run outside a checkout), there's nothing useful to do, so fail
-		// loudly rather than exit 0. Use interactive setup instead.
 		return fmt.Errorf("template not found: %s (run `noctra setup` interactively instead): %w", src, err)
 	}
 
@@ -477,16 +438,11 @@ func runManual(scriptDir string, in *bufio.Scanner) error {
 	return nil
 }
 
-// ── Wizard mechanics ────────────────────────────────────────────────────────
-
 type wizard struct {
 	in  *bufio.Scanner
 	eof bool
 }
 
-// readLine writes the prompt and reads one line. Once stdin reaches EOF the
-// wizard sticks: every subsequent call returns "" without re-prompting, so
-// required-loop helpers above terminate cleanly instead of spinning.
 func (w *wizard) readLine(prompt string) string {
 	if w.eof {
 		return ""
@@ -500,15 +456,12 @@ func (w *wizard) readLine(prompt string) string {
 }
 
 type askOpts struct {
-	existing string // value already in .env, if any
-	fallback string // static default if no existing
-	secret   bool   // mask existing values in the prompt
-	required bool   // loop until non-empty
+	existing string
+	fallback string
+	secret   bool
+	required bool
 }
 
-// askEx is the workhorse prompt: shows existing value (or fallback) in
-// brackets, accepts Enter to keep, type to replace. Required prompts loop
-// until they get a value.
 func (w *wizard) askEx(label string, opts askOpts) string {
 	for {
 		display := opts.existing
@@ -550,9 +503,6 @@ func (w *wizard) askInt(label, existing string, fallback, min int) int {
 	for {
 		s := w.askEx(label, askOpts{fallback: defaultStr})
 		if w.eof {
-			// Preserve the existing .env value on unexpected EOF — losing
-			// it would silently downgrade the user's config to the factory
-			// default on the next re-run.
 			if n, err := strconv.Atoi(defaultStr); err == nil {
 				return n
 			}
@@ -643,9 +593,6 @@ func (w *wizard) chooseTriggerMode(existing string) string {
 	}
 }
 
-// chooseEngine asks which coding-agent backend to dispatch tickets with and
-// returns the canonical backend name ("claude" / "codex" / "copilot" /
-// "antigravity") for AGENT_BACKEND.
 func (w *wizard) chooseEngine(existing string) string {
 	fmt.Println("Coding-agent engine:")
 	fmt.Println("  1) Claude Code        (claude CLI)")
@@ -732,9 +679,6 @@ func (w *wizard) printCLIStatus(agentBackend string) {
 	}
 }
 
-// collectAutoIterate prompts for the auto-iterate-PR feature and its safety
-// knobs. Returns the values as strings (for the .env template) plus the
-// numeric forms used in the summary block.
 func (w *wizard) collectAutoIterate(existing map[string]string) (autoIterate string, maxIter int, prPoll int, trusted string) {
 	autoIterate = "false"
 	maxIter = config.DefaultMaxPRIterations
@@ -833,8 +777,6 @@ func (w *wizard) collectDashboard(existing map[string]string) (addr, token strin
 	return addr, token
 }
 
-// ── Helpers (file I/O, validators, formatting) ──────────────────────────────
-
 func pingLinear(apiKey string) (string, error) {
 	if apiKey == "" {
 		return "", fmt.Errorf("empty key")
@@ -926,12 +868,6 @@ type envValues struct {
 	dashboardAddr, dashboardToken                string
 }
 
-// toMap returns the wizard-managed keys as a flat map suitable for
-// config.PatchEnvFile. Only keys the wizard actively collects from the
-// user are included — static defaults (POLL_INTERVAL, USE_AGENT_TEAMS,
-// GEMINI_MODEL, MAX_REVIEW_RETRIES) are omitted so merging into an
-// existing .env doesn't overwrite manual customizations. The fresh-
-// install template (writeEnvFile) still renders them with defaults.
 func (v envValues) toMap() map[string]string {
 	m := map[string]string{
 		"LINEAR_API_KEY":        v.linearKey,
@@ -987,16 +923,11 @@ func (v envValues) toMap() map[string]string {
 	return m
 }
 
-// mergeEnvFile updates only the wizard-managed keys in an existing .env,
-// preserving every other line (comments, blank lines, hand-added keys like
-// LINEAR_OAUTH_TOKEN). Uses the same atomic writer as `noctra config set`.
 func mergeEnvFile(path string, v envValues) error {
 	return config.PatchEnvFile(path, v.toMap())
 }
 
 func writeEnvFile(path string, v envValues) error {
-	// REPO_PATH is rendered as a comment when empty so users can see where
-	// the fallback would live, mirroring the bash example.
 	repoPathLine := `# REPO_PATH=""`
 	if v.repoPath != "" {
 		repoPathLine = fmt.Sprintf(`REPO_PATH="%s"`, v.repoPath)

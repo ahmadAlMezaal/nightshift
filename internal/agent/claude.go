@@ -11,7 +11,6 @@ import (
 	"regexp"
 )
 
-// claudeBackend runs Anthropic's Claude Code CLI (`claude`) in print mode — Noctra's default backend.
 type claudeBackend struct{}
 
 func (claudeBackend) Name() string     { return "claude" }
@@ -19,7 +18,6 @@ func (claudeBackend) Label() string    { return "Claude Code" }
 func (claudeBackend) CLI() string      { return "claude" }
 func (claudeBackend) CoAuthor() string { return "Claude <noreply@anthropic.com>" }
 
-// Run invokes `claude --print --output-format json`, unwrapping the JSON result into the log and returning usage/cost from the envelope; falls back to raw output when stdout isn't a JSON result object.
 func (b claudeBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) {
 	var env []string
 	if opts.UseAgentTeams {
@@ -40,7 +38,6 @@ func (b claudeBackend) Run(ctx context.Context, opts RunOptions) (Usage, error) 
 	return ParseUsage(stdout + "\n" + stderr), err
 }
 
-// claudeArgs builds the argv for a Claude Code run (split out so the flag set is unit-testable).
 func claudeArgs(opts RunOptions) []string {
 	return []string{
 		"--dangerously-skip-permissions",
@@ -82,9 +79,6 @@ func (u claudeUsage) total() int64 {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationInputTokens + u.CacheReadInputTokens
 }
 
-// streamTail keeps the most recent non-conversation stream events, bounded, so
-// failure markers that only appear on stdout — e.g. system/api_retry rate-limit
-// notices — survive into the run log, where rateLimited/HasRateLimit scans them.
 type streamTail struct {
 	lines [][]byte
 	size  int
@@ -106,9 +100,6 @@ func (t *streamTail) String() string {
 	return string(bytes.Join(t.lines, []byte("\n")))
 }
 
-// tailWorthy reports whether a stream event should be preserved in the run log:
-// everything except conversation traffic (assistant/user), the init handshake,
-// and a final result that already lands in the log via its result text.
 func tailWorthy(ev claudeStreamEvent) bool {
 	switch ev.Type {
 	case "assistant", "user":
@@ -210,7 +201,6 @@ func (b claudeBackend) runCapped(ctx context.Context, opts RunOptions, env []str
 	return final, nil
 }
 
-// claudeRateLimitRe matches the usage / rate-limit markers Claude Code emits.
 var claudeRateLimitRe = regexp.MustCompile(`(?i)rate.limit|usage.limit|exceeded.*limit|too many requests`)
 
 func (claudeBackend) HasRateLimit(output string) bool {

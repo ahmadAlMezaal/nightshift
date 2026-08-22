@@ -410,8 +410,6 @@ func normalizeIdentifier(input, teamKey string) string {
 	return strings.ToUpper(input)
 }
 
-// handleSweep queues an out-of-band sweep. Bare tokens are matched against the task catalog first and
-// treated as repo filters otherwise, so "/sweep lint-cleanup trade-mate" reads naturally.
 func (p *Pipeline) handleSweep(ctx context.Context, args string) string {
 	names := p.SweepTaskNames()
 	if len(names) == 0 {

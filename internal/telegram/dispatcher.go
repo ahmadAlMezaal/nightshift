@@ -15,7 +15,6 @@ const sessionTTL = 5 * time.Minute
 
 const cancelCommand = "cancel"
 
-// HandlerFunc processes a command and returns a reply; empty means no reply sent.
 type HandlerFunc func(ctx context.Context, args string) string
 
 type Conversation interface {
@@ -24,7 +23,6 @@ type Conversation interface {
 
 type StartFunc func(ctx context.Context, args string) (prompt string, conv Conversation)
 
-// Dispatcher routes incoming text messages to registered command handlers.
 type Dispatcher struct {
 	mu       sync.Mutex
 	commands map[string]command
@@ -45,7 +43,6 @@ type session struct {
 	expires time.Time
 }
 
-// NewDispatcher creates a Dispatcher with built-in /help and /ping pre-registered.
 func NewDispatcher() *Dispatcher {
 	d := &Dispatcher{
 		commands: make(map[string]command),
@@ -56,7 +53,6 @@ func NewDispatcher() *Dispatcher {
 	return d
 }
 
-// Register adds a command handler, overwriting any existing one; leading slash and surrounding whitespace are stripped from name.
 func (d *Dispatcher) Register(name, description string, handler HandlerFunc) {
 	d.register(name, command{handler: handler, description: description})
 }
@@ -74,7 +70,6 @@ func (d *Dispatcher) register(name string, cmd command) {
 	d.commands[strings.ToLower(name)] = cmd
 }
 
-// Dispatch parses text into command + args and routes to the handler; empty reply means none.
 func (d *Dispatcher) Dispatch(ctx context.Context, text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -179,14 +174,12 @@ func splitCommand(text string) (name, args string) {
 		args = strings.TrimSpace(parts[1])
 	}
 
-	// Strip @botname suffix Telegram appends in groups (e.g. "/ping@mybot").
 	if i := strings.Index(name, "@"); i > 0 {
 		name = name[:i]
 	}
 	return name, args
 }
 
-// unknownReply points the user at /help.
 func (d *Dispatcher) unknownReply(name string) string {
 	return fmt.Sprintf("Unknown command: *%s*\n\nType /help to see available commands.",
 		notify.EscapeMarkdown(name))

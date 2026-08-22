@@ -16,7 +16,6 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/state"
 )
 
-// ProcessMergedPRs marks tracked PRs processed once merged/closed; for merged ones it diffs human edits and folds them into per-repo lessons via the Gemini gate.
 func ProcessMergedPRs(ctx context.Context, store *state.Store, gh *github.Client, resolver *repo.Resolver, reviewGate *review.Gate) {
 	if store == nil || gh == nil || resolver == nil {
 		return
@@ -56,7 +55,6 @@ func ProcessMergedPRs(ctx context.Context, store *state.Store, gh *github.Client
 				logger.Error("lessons: failed to process merged PR", "err", err)
 			}
 
-			// Mark processed regardless of outcome so a failing diff/API error doesn't retry indefinitely.
 			if err := store.Update(prURL, func(r *state.PRState) {
 				r.MergedProcessed = true
 			}); err != nil {
@@ -88,7 +86,6 @@ func processMergedPR(ctx context.Context, store *state.Store, resolver *repo.Res
 		return fmt.Errorf("no LastPushedSHA recorded for this PR; cannot compute human edits")
 	}
 
-	// Diff Noctra's last pushed commit against FETCH_HEAD (the merged PR head) to isolate human edits.
 	diffCmd := exec.CommandContext(ctx, "git", "-C", repoDir, "diff", cursor.LastPushedSHA, "FETCH_HEAD")
 	var diffOut bytes.Buffer
 	diffCmd.Stdout = &diffOut

@@ -128,7 +128,6 @@ func TestDailyReset(t *testing.T) {
 		t.Error("should not exceed at 999/1000")
 	}
 
-	// Simulate time advancing to the next day.
 	tomorrow := time.Now().UTC().Add(25 * time.Hour)
 	tr.now = func() time.Time { return tomorrow }
 

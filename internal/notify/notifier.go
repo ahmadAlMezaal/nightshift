@@ -6,22 +6,17 @@ import (
 	"strings"
 )
 
-// Notifier sends status messages to a chat platform. Concurrency- and nil-safe (a disabled notifier no-ops).
 type Notifier interface {
-	// Send posts asynchronously (fire-and-forget); errors are swallowed so notifications never block processing.
 	Send(ctx context.Context, message string)
 
-	// SendSync posts synchronously, returning any error. Used by the setup wizard to verify credentials.
 	SendSync(ctx context.Context, message string) error
 }
 
-// Multi fans out notifications to zero or more backends; all methods are nil-safe.
 type Multi struct {
 	backends []Notifier
 	labels   []string
 }
 
-// NewMulti returns a Multi fanning out to the given backends, each paired with a label (nil backends ignored).
 func NewMulti(backends []Notifier, labels []string) *Multi {
 	var (
 		filtered       []Notifier
@@ -39,7 +34,6 @@ func NewMulti(backends []Notifier, labels []string) *Multi {
 	return &Multi{backends: filtered, labels: filteredLabels}
 }
 
-// Send fans out to every backend's Send (fire-and-forget).
 func (m *Multi) Send(ctx context.Context, message string) {
 	if m == nil {
 		return
@@ -49,7 +43,6 @@ func (m *Multi) Send(ctx context.Context, message string) {
 	}
 }
 
-// SendSync fans out to every backend's SendSync, returning the first error (later backends still run).
 func (m *Multi) SendSync(ctx context.Context, message string) error {
 	if m == nil {
 		return fmt.Errorf("notifier is nil")
@@ -63,7 +56,6 @@ func (m *Multi) SendSync(ctx context.Context, message string) error {
 	return firstErr
 }
 
-// Labels returns the display labels for every active backend, for the startup banner.
 func (m *Multi) Labels() []string {
 	if m == nil {
 		return nil
@@ -71,7 +63,6 @@ func (m *Multi) Labels() []string {
 	return m.labels
 }
 
-// String returns a comma-separated summary of active backends, or "Disabled" if none.
 func (m *Multi) String() string {
 	if m == nil || len(m.labels) == 0 {
 		return "Disabled"

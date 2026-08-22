@@ -13,15 +13,15 @@ import (
 
 func TestNew_SelectsBackend(t *testing.T) {
 	cases := map[string]string{
-		"":              "claude", // default
+		"":              "claude",
 		"claude":        "claude",
-		"Claude":        "claude", // case-insensitive
-		" codex ":       "codex",  // trimmed
+		"Claude":        "claude",
+		" codex ":       "codex",
 		"codex":         "codex",
 		"copilot":       "copilot",
-		" Copilot ":     "copilot", // case-insensitive + trimmed
+		" Copilot ":     "copilot",
 		"antigravity":   "antigravity",
-		" Antigravity ": "antigravity", // case-insensitive + trimmed
+		" Antigravity ": "antigravity",
 	}
 	for in, wantName := range cases {
 		b, err := New(in)
@@ -89,12 +89,10 @@ func TestClaudeArgs_PassesPromptInPrintMode(t *testing.T) {
 	if !slices.Contains(args, "--dangerously-skip-permissions") {
 		t.Errorf("claudeArgs missing permission bypass: %v", args)
 	}
-	// Prompt is passed via -p <prompt>.
 	i := slices.Index(args, "-p")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
 		t.Errorf("claudeArgs did not pass prompt after -p: %v", args)
 	}
-	// JSON output is required for usage/cost capture.
 	if of := slices.Index(args, "--output-format"); of < 0 || of+1 >= len(args) || args[of+1] != "json" {
 		t.Errorf("claudeArgs must request --output-format json: %v", args)
 	}
@@ -176,7 +174,6 @@ func TestCodexArgs_UsesExecAndPositionalPrompt(t *testing.T) {
 	if !slices.Contains(args, "--dangerously-bypass-approvals-and-sandbox") {
 		t.Errorf("codexArgs missing approval/sandbox bypass: %v", args)
 	}
-	// Prompt is the final positional argument.
 	if args[len(args)-1] != "do the thing" {
 		t.Errorf("codexArgs should end with the prompt: %v", args)
 	}
@@ -187,11 +184,9 @@ func TestCopilotArgs_UsesAllowAllToolsAndPromptFlag(t *testing.T) {
 	if !slices.Contains(args, "--allow-all-tools") {
 		t.Errorf("copilotArgs missing --allow-all-tools: %v", args)
 	}
-	// --no-ask-user keeps a headless run from hanging on a clarifying question.
 	if !slices.Contains(args, "--no-ask-user") {
 		t.Errorf("copilotArgs missing --no-ask-user: %v", args)
 	}
-	// Prompt is passed via -p <prompt>.
 	i := slices.Index(args, "-p")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" {
 		t.Errorf("copilotArgs did not pass prompt after -p: %v", args)
@@ -203,8 +198,6 @@ func TestAntigravityArgs_PromptIsValueOfPrintFlag(t *testing.T) {
 	if !slices.Contains(args, "--dangerously-skip-permissions") {
 		t.Errorf("antigravityArgs missing --dangerously-skip-permissions: %v", args)
 	}
-	// --print is a string flag: skip-permissions must precede it, and the
-	// prompt must be the final token (its value) — else --print eats the next flag.
 	i := slices.Index(args, "--print")
 	if i < 0 || i+1 >= len(args) || args[i+1] != "do the thing" || args[len(args)-1] != "do the thing" {
 		t.Errorf("antigravityArgs did not pass prompt as the value of --print: %v", args)
@@ -228,7 +221,6 @@ func TestCopilotEnv_InjectsGhTokenWhenNoneSet(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
 
-	// Fake `gh` on PATH that prints a token for `gh auth token`.
 	dir := t.TempDir()
 	gh := filepath.Join(dir, "gh")
 	if err := os.WriteFile(gh, []byte("#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = token ]; then echo faketoken123; fi\n"), 0o755); err != nil {
@@ -250,7 +242,6 @@ func TestCopilotEnv_SkipsClassicPAT(t *testing.T) {
 	t.Setenv("GH_TOKEN", "")
 	t.Setenv("GITHUB_TOKEN", "")
 
-	// Fake `gh` that returns a classic PAT (ghp_), which Copilot rejects.
 	dir := t.TempDir()
 	gh := filepath.Join(dir, "gh")
 	if err := os.WriteFile(gh, []byte("#!/bin/sh\nif [ \"$1\" = auth ] && [ \"$2\" = token ]; then echo ghp_classicclassicclassic; fi\n"), 0o755); err != nil {
@@ -290,7 +281,6 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 	copilot, _ := New("copilot")
 	antigravity, _ := New("antigravity")
 
-	// Shared phrasings all backends must catch.
 	shared := map[string]bool{
 		"All good":                                     false,
 		"Error: rate limit exceeded":                   true,
@@ -314,7 +304,6 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		}
 	}
 
-	// Codex / OpenAI-specific phrasings the claude regex doesn't need to catch.
 	codexOnly := []string{
 		"Error: rate_limit_exceeded",
 		"You have exceeded your current quota",
@@ -325,7 +314,6 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		}
 	}
 
-	// Copilot / GitHub-specific phrasings.
 	copilotOnly := []string{
 		"Error: rate_limit_exceeded",
 		"You have exceeded your current quota",
@@ -336,7 +324,6 @@ func TestHasRateLimit_PerBackend(t *testing.T) {
 		}
 	}
 
-	// Antigravity / Gemini-specific phrasings (Google API status codes).
 	antigravityOnly := []string{
 		"You have exceeded your current quota",
 		"error: RESOURCE_EXHAUSTED",

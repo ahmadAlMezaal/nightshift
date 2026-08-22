@@ -1,4 +1,3 @@
-// Package pipeline runs Noctra's main loop: poll Linear, dispatch a bounded worker pool of ticket goroutines, shut down cleanly on signal or rate-limit. The daily dispatch cap pauses rather than stops.
 package pipeline
 
 import (
@@ -51,8 +50,6 @@ type Pipeline struct {
 	budget  *budget.Tracker
 	sweeper *sweep.Scheduler
 
-	// sweepNow carries out-of-band sweep requests to runSweepLoop, so a manual trigger dispatches
-	// through the loop's own WaitGroup and worker-pool accounting rather than spawning beside it.
 	sweepNow chan sweep.PlanOptions
 
 	planConfirmLabelID string
@@ -65,7 +62,7 @@ type Pipeline struct {
 	mu                sync.Mutex
 	active            map[string]struct{}
 	activeRepos       map[string]string
-	activeMeta        map[string]activeRunMeta // identifier → run type + start time
+	activeMeta        map[string]activeRunMeta
 	cancels           map[string]context.CancelFunc
 	killed            map[string]struct{}
 	failedAttempts    map[string]int
@@ -196,7 +193,6 @@ func New(cfg *config.Config) *Pipeline {
 	return p
 }
 
-// normalizeDashboardAddr binds to localhost when only a port is given, so the dashboard isn't exposed on all interfaces.
 func normalizeDashboardAddr(addr string) string {
 	host, port, err := net.SplitHostPort(addr)
 	if err != nil {
@@ -334,7 +330,6 @@ func (p *Pipeline) Run(ctx context.Context) error {
 				continue
 			}
 
-			// ctx, not loopCtx: a self-shutdown drains in-flight dispatches; only the long-lived loops are cancelled.
 			p.pollOnce(ctx, &wg)
 		}
 	}
@@ -440,7 +435,6 @@ func (p *Pipeline) pollOnce(ctx context.Context, wg *sync.WaitGroup) {
 			slog.Debug("skipping (non-transient failure)", "id", issue.Identifier)
 			continue
 		}
-		// Skip tickets with a plan awaiting approval (ENG-221) until the human approves or it's cleared.
 		if p.hasPendingPlan(issue.Identifier) {
 			p.mu.Unlock()
 			slog.Debug("skipping (plan awaiting approval)", "id", issue.Identifier)
@@ -498,7 +492,6 @@ func (p *Pipeline) markDone(id string) {
 	p.publishDashboardChange()
 }
 
-// isKilled reports whether a ticket was terminated via /kill — skips normal error handling for an intentional stop.
 func (p *Pipeline) isKilled(id string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -513,7 +506,6 @@ func (p *Pipeline) isActiveRun(identifier string) bool {
 	return ok
 }
 
-// KillRun cancels an in-flight ticket's context, terminating the agent process; the goroutine cleans up the worktree on return.
 func (p *Pipeline) KillRun(identifier string) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -529,7 +521,6 @@ func (p *Pipeline) KillRun(identifier string) error {
 	return nil
 }
 
-// PauseDispatch stops future dispatches while letting active runs drain; returns true if already paused.
 func (p *Pipeline) PauseDispatch() bool {
 	p.mu.Lock()
 	alreadyPaused := p.paused
@@ -541,7 +532,6 @@ func (p *Pipeline) PauseDispatch() bool {
 	return alreadyPaused
 }
 
-// ResumeDispatch re-enables future dispatches; returns true if it had been paused.
 func (p *Pipeline) ResumeDispatch() bool {
 	p.mu.Lock()
 	wasPaused := p.paused
@@ -580,7 +570,6 @@ func (p *Pipeline) bumpSuccess() {
 	p.publishDashboardChange()
 }
 
-// ClearSkipped removes a ticket from the skipped set so it's dispatchable again.
 func (p *Pipeline) ClearSkipped(identifier string) error {
 	p.mu.Lock()
 	_, ok := p.skipped[identifier]
@@ -594,7 +583,6 @@ func (p *Pipeline) ClearSkipped(identifier string) error {
 	return nil
 }
 
-// skipPermanently marks a ticket skipped on a non-transient failure (e.g. no Repo: directive) and refunds its dispatch so config errors don't burn the budget; idempotent — refunds once.
 func (p *Pipeline) skipPermanently(id string) {
 	p.mu.Lock()
 	changed := false
@@ -602,7 +590,7 @@ func (p *Pipeline) skipPermanently(id string) {
 		p.skipped[id] = struct{}{}
 		changed = true
 		if p.totalDispatches > 0 {
-			p.totalDispatches-- // refund: config errors shouldn't count
+			p.totalDispatches--
 		}
 	}
 	p.mu.Unlock()
@@ -617,7 +605,6 @@ func (p *Pipeline) publishDashboardChange() {
 	}
 }
 
-// flagRateLimit handles a rate limit per strategy: "shutdown" (legacy) exits on the next tick; "pause" (default, ENG-217) pauses for the cooldown.
 func (p *Pipeline) flagRateLimit() {
 	if p.cfg.RateLimitStrategy == "shutdown" {
 		p.mu.Lock()
@@ -633,7 +620,6 @@ func (p *Pipeline) flagRateLimit() {
 	p.publishDashboardChange()
 }
 
-// flagBudgetExceeded pauses dispatching until the next UTC midnight.
 func (p *Pipeline) flagBudgetExceeded(reason string) {
 	resumeAt := budget.NextUTCMidnight()
 	p.budget.Pause(reason, resumeAt)
@@ -642,12 +628,10 @@ func (p *Pipeline) flagBudgetExceeded(reason string) {
 	p.publishDashboardChange()
 }
 
-// rateLimited reports a usage/rate limit: only a FAILED run whose output carries the backend's markers — a successful run mentioning the words isn't one (without the runErr gate, ENG-178 discarded good work).
 func rateLimited(b agent.Backend, runErr error, output string) bool {
 	return runErr != nil && b.HasRateLimit(output)
 }
 
-// buildNotifier constructs the multi-platform notifier; each enabled platform gets a backend the Multi fans out to.
 func buildNotifier(cfg *config.Config) *notify.Multi {
 	var backends []notify.Notifier
 	var labels []string
@@ -743,7 +727,6 @@ func (p *Pipeline) banner() {
 		tokenCeiling = fmt.Sprintf("%d tokens/run", p.cfg.AgentMaxTokens)
 	}
 
-	// Repos are routed per-ticket via each project's "Repo:" directive — report the routing mode plus existing clone count.
 	repoSummary := "source Repo: directives"
 	if n := len(p.resolver.AllRepoPaths()); n > 0 {
 		repoSummary += fmt.Sprintf(" (%d cloned)", n)
@@ -861,9 +844,7 @@ func (p *Pipeline) summary(ctx context.Context) {
 		succ, fail, dur, usageLine))
 }
 
-// checkForUpdate runs once at startup: best-effort, never blocks Run, swallows errors, logs/pings once when a newer release exists.
 func (p *Pipeline) checkForUpdate(ctx context.Context) {
-	// Skip dev/snapshot builds — no pointless network call every startup.
 	if Version == "" || strings.Contains(Version, "dev") || strings.Contains(Version, "snapshot") {
 		return
 	}
@@ -880,7 +861,6 @@ func (p *Pipeline) checkForUpdate(ctx context.Context) {
 		notify.EscapeMarkdown(latest), notify.EscapeMarkdown(Version)))
 }
 
-// startupCleanup prunes stale remotes and dead worktree entries in every known repo on boot.
 func (p *Pipeline) startupCleanup(ctx context.Context) {
 	slog.Info("running startup cleanup")
 	for _, rp := range p.resolver.AllRepoPaths() {

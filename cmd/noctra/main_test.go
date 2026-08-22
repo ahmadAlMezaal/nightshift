@@ -14,7 +14,6 @@ func TestCompletionScript_Bash(t *testing.T) {
 	if !strings.Contains(got, "complete -F _noctra noctra") {
 		t.Errorf("bash script missing complete registration:\n%s", got)
 	}
-	// Every subcommand must appear in the completion word list.
 	for _, c := range subcommands {
 		if !strings.Contains(got, c) {
 			t.Errorf("bash script missing subcommand %q", c)
@@ -106,7 +105,7 @@ func TestParseUninstallArgs(t *testing.T) {
 				t.Fatalf("err = %v, wantErr = %v", err, tt.wantErr)
 			}
 			if tt.wantErr {
-				return // on error the bool returns are unused
+				return
 			}
 			if purge != tt.purge || force != tt.force || help != tt.help {
 				t.Errorf("got purge=%v force=%v help=%v; want purge=%v force=%v help=%v",

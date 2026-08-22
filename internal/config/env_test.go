@@ -206,7 +206,6 @@ func TestPatchEnvFile_AtomicMode0600(t *testing.T) {
 func TestPatchEnvFile_PreservesUnknownKeys(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".env")
-	// Simulate a .env with a hand-added key the wizard doesn't manage.
 	original := `LINEAR_API_KEY="lin_abc"
 LINEAR_OAUTH_TOKEN="lin_oauth_secret"
 LINEAR_TEAM_KEY="ENG"
@@ -215,7 +214,6 @@ LINEAR_TEAM_KEY="ENG"
 		t.Fatal(err)
 	}
 
-	// Patch only LINEAR_API_KEY — LINEAR_OAUTH_TOKEN must survive.
 	if err := PatchEnvFile(path, map[string]string{
 		"LINEAR_API_KEY": "lin_new",
 	}); err != nil {

@@ -13,13 +13,11 @@ import (
 	"github.com/ahmadAlMezaal/noctra/internal/repo"
 )
 
-// GitHubIssuesConfig contains the settings for the GitHub Issues source.
 type GitHubIssuesConfig struct {
 	Repos        []string
 	TriggerLabel string
 }
 
-// GitHubIssuesSource polls GitHub Issues by label using the gh CLI.
 type GitHubIssuesSource struct {
 	cfg GitHubIssuesConfig
 }

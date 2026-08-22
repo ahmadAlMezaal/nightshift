@@ -34,9 +34,9 @@ func TestHasConversationComment(t *testing.T) {
 func TestConversationCommentAuthors(t *testing.T) {
 	ch := watch.PRChanges{Events: []watch.Event{
 		{Type: watch.EventComment, Author: github.Actor{Login: "alice"}},
-		{Type: watch.EventComment, Path: "main.go", Author: github.Actor{Login: "bot"}}, // inline → excluded
-		{Type: watch.EventReview, Author: github.Actor{Login: "gemini"}},                // review → excluded
-		{Type: watch.EventComment, Author: github.Actor{Login: "alice"}},                // dupe → collapsed
+		{Type: watch.EventComment, Path: "main.go", Author: github.Actor{Login: "bot"}},
+		{Type: watch.EventReview, Author: github.Actor{Login: "gemini"}},
+		{Type: watch.EventComment, Author: github.Actor{Login: "alice"}},
 		{Type: watch.EventComment, Author: github.Actor{Login: "bob"}},
 	}}
 	got := conversationCommentAuthors(ch)
@@ -103,7 +103,7 @@ func TestCountEvents_ReviewsOnly(t *testing.T) {
 }
 
 func TestGitHeadShort(t *testing.T) {
-	dir := gitRepoWithUpstream(t) // from git_test.go
+	dir := gitRepoWithUpstream(t)
 	ctx := context.Background()
 	sha := gitHeadShort(ctx, dir)
 	if sha == "" {

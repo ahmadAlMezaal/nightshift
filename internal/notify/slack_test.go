@@ -55,7 +55,6 @@ func TestSlackDisabledWhenNoURL(t *testing.T) {
 	if s.Enabled {
 		t.Error("expected disabled when webhook URL is empty")
 	}
-	// A disabled notifier should no-op without panic.
 	s.Send(context.Background(), "test")
 }
 

@@ -11,12 +11,8 @@ import (
 	"sync"
 )
 
-// repoLocks serializes worktree mutations per clone. Every function below drives `git worktree add/remove`
-// and `git branch -D` against the SHARED clone, all of which take the same `.git/config` lock — two
-// concurrent sweep tasks on one repo made the loser fail with "could not lock config file .git/config".
 var repoLocks sync.Map
 
-// lockRepo blocks until this clone is free and returns its unlock func.
 func lockRepo(repoPath string) func() {
 	v, _ := repoLocks.LoadOrStore(filepath.Clean(repoPath), &sync.Mutex{})
 	mu := v.(*sync.Mutex)
@@ -24,25 +20,21 @@ func lockRepo(repoPath string) func() {
 	return mu.Unlock
 }
 
-// BranchName returns the branch Noctra creates for a ticket (e.g. "noctra/eng-42").
 func BranchName(identifier string) string {
 	return "noctra/" + strings.ToLower(identifier)
 }
 
-// Worktree describes a freshly created git worktree.
 type Worktree struct {
 	Path   string
 	Branch string
 }
 
-// CreateWorktree creates an isolated worktree at <base>/<identifier> on a new branch off origin/<mainBranch>, clearing any stale branch/worktree first so retries start clean.
 func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch string) (Worktree, error) {
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
 
 	defer lockRepo(repoPath)()
 
-	// Remove the worktree BEFORE the branch — git won't delete a branch still checked out in a worktree, which would leave it behind and fail `worktree add -b`.
 	_ = runIn(ctx, repoPath, "git", "fetch", "origin", mainBranch, "--quiet")
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
@@ -53,7 +45,6 @@ func CreateWorktree(ctx context.Context, base, identifier, repoPath, mainBranch 
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// ResumeWorktree creates a worktree from an EXISTING remote branch (not fresh from main) so re-engagement on an open PR keeps prior commits; fails if origin/<branch> is absent (use CreateWorktree then).
 func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Worktree, error) {
 	branch := BranchName(identifier)
 	wt := filepath.Join(base, identifier)
@@ -64,7 +55,6 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 		return Worktree{}, fmt.Errorf("git fetch origin %s: %w", branch, err)
 	}
 
-	// Worktree before branch: git won't delete a branch checked out in a worktree, and a leftover branch fails `worktree add -b`.
 	_ = runIn(ctx, repoPath, "git", "worktree", "remove", "--force", wt)
 	_ = runIn(ctx, repoPath, "git", "branch", "-D", branch)
 
@@ -74,7 +64,6 @@ func ResumeWorktree(ctx context.Context, base, identifier, repoPath string) (Wor
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// CreateWorktreeWithBranch is CreateWorktree with an explicit branch name (not derived from the identifier), for sweep tasks using "noctra/sweep-<suffix>".
 func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, mainBranch, branch string) (Worktree, error) {
 	wt := filepath.Join(base, identifier)
 
@@ -90,26 +79,16 @@ func CreateWorktreeWithBranch(ctx context.Context, base, identifier, repoPath, m
 	return Worktree{Path: wt, Branch: branch}, nil
 }
 
-// RemoteBranchExists reports whether origin already has this branch. Network read only; it takes no
-// repo lock because `git ls-remote` touches neither .git/config nor the worktree admin area.
 func RemoteBranchExists(ctx context.Context, repoPath, branch string) bool {
 	return runIn(ctx, repoPath, "git", "ls-remote", "--exit-code", "--heads", "origin", branch) == nil
 }
 
-// CreateOrResumeWorktree resumes an identifier's branch when origin already has it, and creates a fresh
-// one off main otherwise; resumed reports which path was taken.
-//
-// A run that pushed its branch but died before opening a PR (a restart mid-run does this) leaves an
-// orphaned remote branch. CreateWorktree always branches from origin/<main>, so every later attempt
-// produced a non-descendant that origin rejected as non-fast-forward — the ticket could never land
-// again, burning a full agent run per retry. Resuming continues that branch instead.
 func CreateOrResumeWorktree(ctx context.Context, base, identifier, repoPath, mainBranch string) (wt Worktree, resumed bool, err error) {
 	if RemoteBranchExists(ctx, repoPath, BranchName(identifier)) {
 		wt, err = ResumeWorktree(ctx, base, identifier, repoPath)
 		if err == nil {
 			return wt, true, nil
 		}
-		// Fall through: a branch we can see but cannot resume is worse than a fresh start.
 		slog.Warn("repo: could not resume existing remote branch, starting fresh",
 			"identifier", identifier, "branch", BranchName(identifier), "err", err)
 	}
@@ -117,7 +96,6 @@ func CreateOrResumeWorktree(ctx context.Context, base, identifier, repoPath, mai
 	return wt, false, err
 }
 
-// CleanupWorktree removes an identifier's worktree via git (clears the admin entry too), falling back to rm -rf.
 func CleanupWorktree(ctx context.Context, repoPath, base, identifier string) {
 	if identifier == "" {
 		return

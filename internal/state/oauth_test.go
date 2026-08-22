@@ -18,7 +18,6 @@ func TestSaveLoadOAuth_RoundTripsAcrossReopen(t *testing.T) {
 		t.Fatalf("SaveOAuth: %v", err)
 	}
 
-	// Reopen from disk to prove it persisted.
 	s2, err := Open(path)
 	if err != nil {
 		t.Fatalf("reopen: %v", err)

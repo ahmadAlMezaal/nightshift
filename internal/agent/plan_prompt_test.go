@@ -137,7 +137,6 @@ func TestBuildPlanImplementPrompt_IncludesPlan(t *testing.T) {
 	if !strings.Contains(out, SummaryEndMarker) {
 		t.Error("prompt missing summary end marker")
 	}
-	// Should NOT contain RELEASE instruction when AutoReleaseLabel is false.
 	if strings.Contains(out, "RELEASE:") {
 		t.Error("prompt should not contain RELEASE instruction when AutoReleaseLabel is false")
 	}

@@ -9,7 +9,6 @@ import (
 	"testing"
 )
 
-// gitRepoWithUpstream builds a temp repo with one commit on main and a fake origin/main tracking ref, so branchAhead can run against "origin/main".
 func gitRepoWithUpstream(t *testing.T) string {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -33,7 +32,7 @@ func gitRepoWithUpstream(t *testing.T) string {
 	}
 	run("add", "-A")
 	run("commit", "-m", "c1", "--quiet")
-	run("update-ref", "refs/remotes/origin/main", "HEAD") // fake upstream at HEAD
+	run("update-ref", "refs/remotes/origin/main", "HEAD")
 	return dir
 }
 
@@ -48,11 +47,9 @@ func TestHasStagedChanges(t *testing.T) {
 		}
 	}
 
-	// Clean index.
 	if staged, err := hasStagedChanges(ctx, dir); err != nil || staged {
 		t.Fatalf("clean: staged=%v err=%v", staged, err)
 	}
-	// New staged file.
 	if err := os.WriteFile(filepath.Join(dir, "g.txt"), []byte("b"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +57,6 @@ func TestHasStagedChanges(t *testing.T) {
 	if staged, err := hasStagedChanges(ctx, dir); err != nil || !staged {
 		t.Fatalf("staged: staged=%v err=%v", staged, err)
 	}
-	// After commit, clean again.
 	git("commit", "-m", "c2", "--quiet")
 	if staged, err := hasStagedChanges(ctx, dir); err != nil || staged {
 		t.Fatalf("post-commit: staged=%v err=%v", staged, err)
@@ -78,11 +74,9 @@ func TestBranchAhead(t *testing.T) {
 		}
 	}
 
-	// HEAD == origin/main → not ahead.
 	if ahead, err := branchAhead(ctx, dir, "origin/main"); err != nil || ahead {
 		t.Fatalf("level: ahead=%v err=%v", ahead, err)
 	}
-	// A new commit (the self-committed case) → ahead, even with a clean worktree.
 	if err := os.WriteFile(filepath.Join(dir, "g.txt"), []byte("b"), 0o600); err != nil {
 		t.Fatal(err)
 	}

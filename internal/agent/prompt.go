@@ -5,21 +5,16 @@ import (
 	"strings"
 )
 
-// BuildPromptInput is the data the prompt template needs about a ticket.
 type BuildPromptInput struct {
-	Identifier  string
-	Title       string
-	Description string
-	// Comments are human clarifications from the ticket thread (Noctra's notices filtered out), surfaced so a reply can unblock a retry.
-	Comments []string
-	UseTeams bool
-	// AutoReleaseLabel enables the RELEASE: instruction asking for a semver bump level.
+	Identifier       string
+	Title            string
+	Description      string
+	Comments         []string
+	UseTeams         bool
 	AutoReleaseLabel bool
-	// RepoLessons contains per-repo lessons/conventions from human post-merge edits.
-	RepoLessons string
+	RepoLessons      string
 }
 
-// BuildPrompt returns the implement prompt for a ticket — the default single-agent flavor, or the Agent Teams variant that delegates.
 func BuildPrompt(in BuildPromptInput) string {
 	desc := in.Description
 	if desc == "" {

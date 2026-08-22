@@ -39,7 +39,6 @@ func TestRunGet_MissingKey(t *testing.T) {
 
 func TestRunGet_MissingFile(t *testing.T) {
 	envFile := filepath.Join(t.TempDir(), ".env")
-	// Missing file: LoadEnvFile returns empty map, key not found.
 	if err := runGet(envFile, "ANY"); err == nil {
 		t.Error("runGet should return an error when key is not in a missing file")
 	}
@@ -222,11 +221,9 @@ func TestIsSecretKey(t *testing.T) {
 }
 
 func TestMaskSecret(t *testing.T) {
-	// Short secrets are fully masked — no trailing characters leak.
 	if got := maskSecret("short"); got != "••••••" {
 		t.Errorf("maskSecret short = %q, want fully masked", got)
 	}
-	// Long secrets keep a 4-char hint.
 	got := maskSecret("lin_api_abcd1234")
 	if got != "••••••1234" {
 		t.Errorf("maskSecret long = %q, want last-4 hint", got)
@@ -239,7 +236,6 @@ func TestRunList(t *testing.T) {
 	writeTestFile(t, envFile, `LINEAR_API_KEY="lin_api_abcd1234"
 AGENT_BACKEND="claude"
 `)
-	// Both masked and revealed paths should succeed without error.
 	if err := runList(envFile, false); err != nil {
 		t.Errorf("runList (masked) should succeed: %v", err)
 	}

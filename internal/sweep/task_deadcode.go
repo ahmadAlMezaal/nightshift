@@ -9,7 +9,7 @@ func init() {
 	Register(Task{
 		Name:         "dead-code",
 		Description:  "Detect and remove unused code, imports, and variables",
-		Cooldown:     14 * 24 * time.Hour, // biweekly
+		Cooldown:     14 * 24 * time.Hour,
 		BranchSuffix: "dead-code",
 		CommitPrefix: "refactor",
 		PRLabel:      "maintenance",

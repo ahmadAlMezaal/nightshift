@@ -1,4 +1,3 @@
-// Package source defines the ticket-source boundary used by the pipeline.
 package source
 
 import (
@@ -8,7 +7,6 @@ import (
 	"strings"
 )
 
-// TicketSource is the source surface the pipeline needs; adapters hide whether a ticket came from Linear, GitHub Issues, or elsewhere.
 type TicketSource interface {
 	Name() string
 	Prepare(context.Context) error
@@ -21,35 +19,29 @@ type TicketSource interface {
 	Comment(context.Context, Ticket, string) error
 }
 
-// DoneMarker moves a ticket to a terminal "done" state — the no-op fallback when a source can't archive.
 type DoneMarker interface {
 	MarkDone(context.Context, Ticket) error
 }
 
-// Archiver archives a ticket outright (preferred over DoneMarker on a no-op).
 type Archiver interface {
 	Archive(context.Context, Ticket) error
 }
 
-// ReadyInfo is the source-agnostic status update after Noctra opens a PR.
 type ReadyInfo struct {
 	PRURL        string
 	BackendLabel string
 	ReviewState  string
 }
 
-// Comment is a human or system comment attached to a ticket.
 type Comment struct {
 	Body   string
 	Author string
 }
 
-// Label is a source label attached to a ticket.
 type Label struct {
 	Name string
 }
 
-// Ticket is the source-neutral ticket shape consumed by the pipeline.
 type Ticket struct {
 	Source      string
 	ID          string
@@ -63,7 +55,6 @@ type Ticket struct {
 	Comments    []Comment
 	Labels      []Label
 
-	// SourceData carries adapter-owned opaque fields for mutations without leaking them into pipeline code.
 	SourceData any
 }
 
@@ -72,7 +63,6 @@ var (
 	branchDirectiveRe = regexp.MustCompile(`(?im)^\s*Branch:\s*(.+?)\s*$`)
 )
 
-// ParseRepoDirective parses a "Repo: <owner/name | url>" line and optional "Branch: <name>" from ticket/project text.
 func ParseRepoDirective(texts ...string) (string, string) {
 	for _, src := range texts {
 		m := repoDirectiveRe.FindStringSubmatch(src)
@@ -92,14 +82,12 @@ func ParseRepoDirective(texts ...string) (string, string) {
 	return "", ""
 }
 
-// systemCommentMarkers identify auto-posted comments (Noctra/sync tooling) that must not be fed back as human clarification.
 var systemCommentMarkers = []string{
 	"**Noctra",
 	"**Nightshift",
 	"This comment thread is synced",
 }
 
-// IsSystemComment reports whether a comment body was auto-posted by Noctra or sync tooling.
 func IsSystemComment(body string) bool {
 	firstLine := ""
 	for _, line := range strings.Split(body, "\n") {
@@ -119,7 +107,6 @@ func IsSystemComment(body string) bool {
 	return false
 }
 
-// ClarificationComments returns human-authored ticket comments formatted for the agent prompt.
 func (t Ticket) ClarificationComments() []string {
 	var out []string
 	for _, c := range t.Comments {
@@ -136,7 +123,6 @@ func (t Ticket) ClarificationComments() []string {
 	return out
 }
 
-// HasLabel reports whether the ticket carries the given label.
 func (t Ticket) HasLabel(name string) bool {
 	target := strings.ToLower(strings.TrimSpace(name))
 	for _, l := range t.Labels {
@@ -147,10 +133,8 @@ func (t Ticket) HasLabel(name string) bool {
 	return false
 }
 
-// BackendLabelPrefix selects a per-ticket coding-agent backend (e.g. "agent:codex" -> "codex").
 const BackendLabelPrefix = "agent:"
 
-// BackendLabel extracts the backend name from the ticket's labels.
 func (t Ticket) BackendLabel() string {
 	for _, l := range t.Labels {
 		name := strings.ToLower(strings.TrimSpace(l.Name))
@@ -163,10 +147,8 @@ func (t Ticket) BackendLabel() string {
 	return ""
 }
 
-// PlanConfirmCommentPrefix identifies Noctra's plan-confirm comments.
 const PlanConfirmCommentPrefix = "📋 **Noctra: Implementation plan**"
 
-// IsApprovalComment reports whether a comment body is human approval of a pending plan.
 func IsApprovalComment(body string) bool {
 	s := strings.ToLower(strings.TrimSpace(body))
 	switch s {

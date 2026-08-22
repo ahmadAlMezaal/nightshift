@@ -76,8 +76,6 @@ func TestDiscordSuppressesMentions(t *testing.T) {
 	if err := d.SendSync(context.Background(), "ticket @everyone title"); err != nil {
 		t.Fatalf("SendSync: %v", err)
 	}
-	// parse must be present and empty ([], not null) so Discord suppresses
-	// all @everyone/@here/role/user mentions from untrusted ticket text.
 	if got.AllowedMentions.Parse == nil {
 		t.Fatal("allowed_mentions.parse missing or null — mentions not suppressed")
 	}
@@ -145,7 +143,6 @@ func TestDiscordDisabledWhenNoURL(t *testing.T) {
 	if d.Enabled {
 		t.Error("expected disabled when webhook URL is empty")
 	}
-	// A disabled notifier should no-op without panic.
 	d.Send(context.Background(), "test")
 }
 

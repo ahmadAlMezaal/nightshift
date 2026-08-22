@@ -39,7 +39,7 @@ func TestBuildFixPrompt_IncludesTicketContextAndAllFeedback(t *testing.T) {
 		"Don't forget the bold variant",
 		"The fallback chain is missing.",
 		"Review (CHANGES_REQUESTED)",
-		"BLOCKED:", // the rules section
+		"BLOCKED:",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("fix prompt missing %q\n---\n%s", want, out)

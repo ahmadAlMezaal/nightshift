@@ -60,7 +60,6 @@ func TestCronNext_EveryFifteenMinutes(t *testing.T) {
 
 func TestCronNext_Weekdays(t *testing.T) {
 	s, _ := ParseCron("0 9 * * 1-5")
-	// 2026-06-20 is a Saturday; next weekday 9am is Monday 2026-06-22.
 	from := time.Date(2026, 6, 20, 12, 0, 0, 0, time.UTC)
 	got := s.Next(from)
 	want := time.Date(2026, 6, 22, 9, 0, 0, 0, time.UTC)
@@ -70,11 +69,9 @@ func TestCronNext_Weekdays(t *testing.T) {
 }
 
 func TestCronNext_DomDowOr(t *testing.T) {
-	// When both dom and dow are restricted, either matching fires.
-	s, _ := ParseCron("0 0 13 * 5") // the 13th OR any Friday
+	s, _ := ParseCron("0 0 13 * 5")
 	from := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
 	got := s.Next(from)
-	// First Friday in June 2026 is the 5th — earlier than the 13th.
 	want := time.Date(2026, 6, 5, 0, 0, 0, 0, time.UTC)
 	if !got.Equal(want) {
 		t.Errorf("Next = %v, want %v", got, want)

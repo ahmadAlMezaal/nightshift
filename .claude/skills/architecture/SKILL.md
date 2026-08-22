@@ -87,6 +87,37 @@ The repo uses `.golangci.yml` with `version: "2"` syntax. This means:
 
 **Rule:** if adding linter config, use v2 syntax. v1 keys will cause a parse error.
 
+## Invariant 7: the codebase carries no comments
+
+Source files hold **zero comments** — the only exception is a compiler/tooling directive (`//go:embed`,
+`//go:build`, `//nolint`, `// Code generated`). Do not reintroduce explanatory comments, doc comments on
+exported symbols included. Names and structure carry the *what*; this file and `CLAUDE.md` carry the *why*.
+
+The non-obvious facts that previously lived in comments, kept here so removing them lost nothing:
+
+| Where | Invariant |
+|---|---|
+| `repo/worktree.go` | Worktree mutations serialize per clone via `lockRepo` — concurrent `git worktree add` on one clone collides on the `.git/config` lock. Remove the worktree **before** the branch: git won't delete a branch still checked out, and a leftover branch fails `worktree add -b`. |
+| `repo/worktree.go` | Ticket dispatch uses `CreateOrResumeWorktree`, never `CreateWorktree` directly: a run that pushed its branch but died before `gh pr create` leaves an orphaned remote branch, and re-branching from main produces a non-descendant origin rejects as non-fast-forward. |
+| `pipeline/iterate.go` | Every failure path must record the iteration before returning, or the cursor never advances and the same feedback loops forever. Two deliberate exceptions: infra failures (timeout / rate-limit) don't increment — they weren't real attempts — and a shutdown cancellation isn't recorded at all, since it would bump the count and could fire the cap warning. |
+| `pipeline/iterate.go` | Push whenever the branch is ahead, not just when the worktree is dirty: the agent sometimes self-commits, and gating on dirtiness alone silently drops those commits (ENG-182). |
+| `pipeline/plan.go` | `hasPendingPlan` takes `p.mu` itself — callers must **not** already hold it. |
+| `pipeline/sweep.go` | A manual sweep deliberately skips `MarkSwept` so an ad-hoc run never shifts the scheduled cadence. |
+| `notify/discord.go` | `allowed_mentions.parse` must be a **non-nil** empty slice so it marshals to `[]` and not `null`; `null` re-enables `@everyone`/`@here` parsing on untrusted ticket text. |
+| `notify/telegram.go` | `EscapeMarkdown` covers Telegram's strict legacy-Markdown chars. Apply it to dynamic values only, leaving the template's own `*bold*` alone — an unescaped `snake_case` title returns 400 and the notification vanishes (PR #52). |
+| `linear/types.go` | The self-comment filter still matches the pre-rename `**Nightshift` prefix (ENG-204 tickets carry it). Classify by the **first non-empty line** only: a leading `>` quote is a human quoting our notice, never a system comment. |
+| `github/types.go` | `RepoURL` is the discovering clone's remote URL, not gh JSON, and preserves its scheme — synthesizing HTTPS from `owner/name` breaks auto-iterate on SSH-only private repos. |
+| `github/client.go` | Truncation skips UTF-8 continuation bytes (top bits `10`) so a log slice never cuts mid-rune. |
+| `telegram/listener.go` | The HTTP client timeout must exceed `pollTimeout`, or every long-poll `getUpdates` aborts client-side. |
+| `state/state.go` | `Update`'s callback runs under the store lock — never call back into the `Store` from it. `OpenMigrating` imports the legacy JSON only when the DB is newly created; an existing DB is never clobbered. |
+| `agent/log.go` | `usageFooterRe` is anchored to end-of-string so it never eats a mid-summary mention of token usage. |
+| `agent/copilot.go` | Bridge only tokens Copilot accepts (`gho_` / `github_pat_`). It rejects classic `ghp_` PATs and reads the env token before its own store, so injecting one breaks an otherwise-valid `copilot /login`. |
+| `agent/antigravity.go` | `agy`'s `--print` is a **string** flag whose value *is* the prompt: the auto-approve flag must precede it and the prompt must be the final token, or `--print` swallows the next flag. |
+| `dashboard/dashboard.go` | `/fonts/` stays unauthenticated: `@font-face` `url()` subrequests don't carry the page's `?token=`, so gating them silently breaks the brand fonts. |
+| `selfupdate` | Dev/snapshot builds never advertise an update — they can't be compared to a release tag. |
+| `config/config.go` | `MigrateLegacyPaths` renames `~/.nightshift*` → `~/.noctra*` only when the old exists and the new doesn't; best-effort, never clobbers. |
+| `cmd/noctra` | `uninstall --help` must never trigger the destructive action, and an unrecognized flag errors rather than falling through. |
+
 ## Quality gates
 
 Before submitting changes:
