@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -295,8 +296,21 @@ func reviewCommentsAPIPath(prURL string) (string, error) {
 	return fmt.Sprintf("repos/%s/%s/pulls/%s/comments", parts[0], parts[1], parts[3]), nil
 }
 
+var markdownLinkRe = regexp.MustCompile(`^\[[^\]]*\]\(\s*<?\s*([^)<>\s]+)\s*>?\s*\)$`)
+
+func NormalizeRepoRef(raw string) string {
+	s := strings.TrimSpace(strings.Trim(strings.TrimSpace(raw), "`"))
+	if m := markdownLinkRe.FindStringSubmatch(s); m != nil {
+		s = strings.TrimSpace(m[1])
+	}
+	if strings.HasPrefix(s, "<") && strings.HasSuffix(s, ">") {
+		s = strings.TrimSpace(s[1 : len(s)-1])
+	}
+	return s
+}
+
 func ExtractOwnerRepo(raw string) (string, error) {
-	s := strings.TrimSuffix(strings.TrimSpace(raw), ".git")
+	s := strings.TrimSuffix(NormalizeRepoRef(raw), ".git")
 
 	if strings.HasPrefix(s, "git@") {
 		idx := strings.Index(s, ":")

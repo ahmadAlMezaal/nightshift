@@ -231,3 +231,23 @@ func TestResolveDirect_InvalidRefIsNonTransient(t *testing.T) {
 		t.Fatalf("want NonTransientError, got %T: %v", err, err)
 	}
 }
+
+func TestCloneURL(t *testing.T) {
+	cases := []struct {
+		ref       string
+		ownerRepo string
+		want      string
+	}{
+		{"me/auth", "me/auth", "https://github.com/me/auth"},
+		{"https://github.com/me/auth", "me/auth", "https://github.com/me/auth"},
+		{"git@gitlab.com:me/auth.git", "me/auth", "git@gitlab.com:me/auth.git"},
+		{"https://gitlab.com/me/auth", "me/auth", "https://gitlab.com/me/auth"},
+		{"[https://github.com/me/auth](<https://github.com/me/auth>)", "me/auth", "https://github.com/me/auth"},
+		{"[me/auth](https://gitlab.com/me/auth)", "me/auth", "https://gitlab.com/me/auth"},
+	}
+	for _, c := range cases {
+		if got := cloneURL(c.ref, c.ownerRepo); got != c.want {
+			t.Errorf("cloneURL(%q, %q) = %q, want %q", c.ref, c.ownerRepo, got, c.want)
+		}
+	}
+}

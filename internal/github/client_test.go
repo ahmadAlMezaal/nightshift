@@ -124,7 +124,15 @@ func TestExtractOwnerRepo(t *testing.T) {
 		{"me/auth", "me/auth", false},
 		{"  me/auth  ", "me/auth", false},
 
+		{"[https://github.com/me/auth](<https://github.com/me/auth>)", "me/auth", false},
+		{"[https://github.com/me/auth](https://github.com/me/auth)", "me/auth", false},
+		{"[me/auth](https://github.com/me/auth)", "me/auth", false},
+		{"[the repo](git@github.com:me/auth.git)", "me/auth", false},
+		{"<https://github.com/me/auth>", "me/auth", false},
+		{"`me/auth`", "me/auth", false},
+
 		{"garbage", "", true},
+		{"[broken](notaurl)", "", true},
 		{"git@github.com:", "", true},
 		{"https://github.com/just-owner", "", true},
 		{"https://github.com/a/b/c", "", true},
