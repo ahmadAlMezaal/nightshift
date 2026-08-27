@@ -55,6 +55,14 @@ func (r *Resolver) Resolve(_ context.Context, project string) (Resolved, error) 
 		project)}
 }
 
+func cloneURL(ref, ownerRepo string) string {
+	url := github.NormalizeRepoRef(ref)
+	if !strings.Contains(url, "://") && !strings.HasPrefix(url, "git@") {
+		url = "https://github.com/" + ownerRepo
+	}
+	return url
+}
+
 func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resolved, error) {
 	ownerRepo, err := github.ExtractOwnerRepo(ref)
 	if err != nil {
@@ -62,10 +70,7 @@ func (r *Resolver) ResolveDirect(ctx context.Context, ref, branch string) (Resol
 			"%q is not a valid owner/name or git URL: %w", ref, err)}
 	}
 
-	url := strings.TrimSpace(ref)
-	if !strings.Contains(url, "://") && !strings.HasPrefix(url, "git@") {
-		url = "https://github.com/" + ownerRepo
-	}
+	url := cloneURL(ref, ownerRepo)
 
 	dest := filepath.Join(r.ReposBase, Slug(ownerRepo))
 	if !isGitRepo(dest) {

@@ -112,6 +112,7 @@ The non-obvious facts that previously lived in comments, kept here so removing t
 | `linear/types.go` | The self-comment filter still matches the pre-rename `**Nightshift` prefix (ENG-204 tickets carry it). Classify by the **first non-empty line** only: a leading `>` quote is a human quoting our notice, never a system comment. |
 | `github/types.go` | `RepoURL` is the discovering clone's remote URL, not gh JSON, and preserves its scheme — synthesizing HTTPS from `owner/name` breaks auto-iterate on SSH-only private repos. |
 | `github/client.go` | Truncation skips UTF-8 continuation bytes (top bits `10`) so a log slice never cuts mid-rune. |
+| `github/client.go` | Every `Repo:` directive ref goes through `NormalizeRepoRef` before parsing: Linear rewrites a bare URL in project content into `[url](<url>)` on save, and the raw markdown reaches `ExtractOwnerRepo` as the ref. Unwrapped, a GitHub link errors as "no repo mapping" and a non-GitHub link silently resolves to `github.com/<owner>/<name>`. |
 | `telegram/listener.go` | The HTTP client timeout must exceed `pollTimeout`, or every long-poll `getUpdates` aborts client-side. |
 | `state/state.go` | `Update`'s callback runs under the store lock — never call back into the `Store` from it. `OpenMigrating` imports the legacy JSON only when the DB is newly created; an existing DB is never clobbered. |
 | `agent/log.go` | `usageFooterRe` is anchored to end-of-string so it never eats a mid-summary mention of token usage. |
